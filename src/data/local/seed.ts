@@ -24,6 +24,8 @@ import { emptyStore, type Store } from './store';
 export const SEED_VERSION = 9;
 export const DEMO_TZ = 'America/Chicago';
 export const DEMO_ORG = 'org_lakeside';
+/** Accounts created through sign-up. Kept apart from the seeded demo so a new account starts empty. */
+export const SIGNUP_ORG = 'org_signups';
 
 export const DEMO_IDS = {
   maria: 'pat_maria',

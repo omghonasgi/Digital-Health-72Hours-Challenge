@@ -2,7 +2,7 @@ import { makePlanCode, stubPatient } from '@/core/codes';
 import type { Language, Profile, Role, Session } from '@/core/types';
 import { newId } from '../repository';
 import type { Store } from './store';
-import { DEMO_ORG } from './seed';
+import { SIGNUP_ORG } from './seed';
 
 /**
  * Demo-only authentication. Passwords are stored in plain text in the local
@@ -32,7 +32,8 @@ export class LocalAuth {
       role: input.role,
       displayName: input.displayName,
       preferredLanguage: input.preferredLanguage,
-      organizationId: DEMO_ORG,
+      // New accounts never see the seeded patients: a new coordinator starts with an empty queue.
+      organizationId: SIGNUP_ORG,
       createdAt: new Date().toISOString(),
     };
     this.store.profiles.push(profile);

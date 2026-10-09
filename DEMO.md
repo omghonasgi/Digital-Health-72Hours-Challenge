@@ -32,4 +32,6 @@ Task invite (assigned tasks only, not the full assessment): `SOFIA-2026`
 10. Sign in as **Sofia**. Accept a task, mark complete, or report a barrier. Confirm availability blocks. Or enter `PLAN-MARIA` to fill her assessment. **Pay** shows the same family bill (no income or eligibility details) and she can cover the rest of the balance.
 11. Settings → language EN/ES. Doses and times must stay the same. **Reset demo data** restores the seed.
 
+**New accounts start empty.** Anything created on **Create account** has no sample plan, costs or payments: Calendar is inactive, Finance and Pay are $0 until the intake is filled in. New accounts live in their own organization, so a new coordinator sees only newly created patients (not Maria/James), and Jordan sees only the demo patients.
+
 Surgery dates are relative (next Friday at least two days out) so the seed does not go stale.

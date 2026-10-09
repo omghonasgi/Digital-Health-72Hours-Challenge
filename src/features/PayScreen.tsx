@@ -500,6 +500,7 @@ function SimpleSummary({ items, claims }: { items: SettledItem[]; claims: ClaimA
       <Body weight="medium" style={{ paddingBottom: space.sm }}>
         {t('pay.simple.title')}
       </Body>
+      {ordered.length === 0 ? <Muted>{t('pay.nothingDue')}</Muted> : null}
       {ordered.map((item, i) => {
         const { main, hint } = plainSentences(item, t, money);
         const done = item.payable && item.payout === 'sent';
