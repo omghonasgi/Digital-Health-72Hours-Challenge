@@ -6,7 +6,7 @@ import type { LucideIcon } from 'lucide-react-native';
 import { settleBill, validateCard, type SettledItem, type Settlement } from '@/core/engines/payments';
 import { fmtDateTime } from '@/core/time';
 import type { FamilyBill, Payment, PaymentMethod, ResourceKind } from '@/core/types';
-import { payFamilyShare, publishBill } from '@/core/usecases';
+import { payFamilyShare, publishBill, simulateInsuranceReply, submitInsuranceClaim } from '@/core/usecases';
 import { useSession } from '@/state/SessionProvider';
 import { useAction } from '@/state/usePlan';
 import {
@@ -84,13 +84,57 @@ function useBill(patientId: string | undefined, publish: boolean) {
   return { ...state, reload };
 }
 
-export function PayScreen({ patientId, publish, bookHref, header }: { patientId?: string; publish: boolean; bookHref?: string; header?: React.ReactNode }) {
+type View_ = 'simple' | 'detailed';
+
+interface ClaimActions {
+  canManage: boolean;
+  busy: boolean;
+  submit: (itemId: string) => void;
+  reply: (claimId: string, decision: 'approved' | 'denied') => void;
+}
+
+export function PayScreen({
+  patientId,
+  publish,
+  canManage = false,
+  bookHref,
+  header,
+}: {
+  patientId?: string;
+  publish: boolean;
+  /** Patient (or coordinator) side: may file insurance claims and trigger the simulated insurer reply. */
+  canManage?: boolean;
+  bookHref?: string;
+  header?: React.ReactNode;
+}) {
   const { t } = useTranslation();
   const { bill, payments, loading, error, reload } = useBill(patientId, publish);
   const settlement = useMemo(() => settleBill(bill, payments), [bill, payments]);
   const money = useMoney();
   const [checkout, setCheckout] = useState(false);
   const [receipt, setReceipt] = useState<{ payment: Payment; paidOut: SettledItem[] } | null>(null);
+  const [view, setView] = useState<View_>('simple');
+  const { repo } = useSession();
+  const claimAction = useAction();
+  const claims: ClaimActions = {
+    canManage,
+    busy: claimAction.busy,
+    submit: (itemId) => {
+      if (!patientId) return;
+      void claimAction.run(async () => {
+        await submitInsuranceClaim(repo, patientId, itemId);
+        await reload();
+      });
+    },
+    reply: (claimId, decision) => {
+      if (!patientId) return;
+      void claimAction.run(async () => {
+        await new Promise((r) => setTimeout(r, 600)); // simulated insurer round trip
+        await simulateInsuranceReply(repo, patientId, claimId, decision);
+        await reload();
+      });
+    },
+  };
 
   const ready = settlement.items.filter((i) => i.payable);
   const notBooked = settlement.items.filter((i) => !i.payable);
@@ -118,20 +162,32 @@ export function PayScreen({ patientId, publish, bookHref, header }: { patientId?
           />
         ) : null}
 
-        <MoneyFlow settlement={settlement} />
+        <Row wrap style={{ justifyContent: 'space-between' }}>
+          <Row>
+            <Chip label={t('pay.view.simple')} icon={Icons.FileText} selected={view === 'simple'} onPress={() => setView('simple')} />
+            <Chip label={t('pay.view.detailed')} icon={Icons.LayoutGrid} selected={view === 'detailed'} onPress={() => setView('detailed')} />
+          </Row>
+          {claimAction.error ? <Body color={colors.urgent}>{claimAction.error}</Body> : null}
+        </Row>
 
-        <Section title={t('pay.ready')} aside={<Meta>{money(settlement.total)}</Meta>}>
-          {ready.length === 0 ? (
-            <Card>
-              <Muted>{t('pay.nothingDue')}</Muted>
-            </Card>
-          ) : null}
-          {ready.map((item) => (
-            <ItemCard key={item.id} item={item} />
-          ))}
-        </Section>
+        {view === 'simple' ? <SimpleSummary items={settlement.items} claims={claims} /> : null}
 
-        {notBooked.length ? (
+        {view === 'detailed' ? <MoneyFlow settlement={settlement} /> : null}
+
+        {view === 'detailed' ? (
+          <Section title={t('pay.ready')} aside={<Meta>{money(settlement.total)}</Meta>}>
+            {ready.length === 0 ? (
+              <Card>
+                <Muted>{t('pay.nothingDue')}</Muted>
+              </Card>
+            ) : null}
+            {ready.map((item) => (
+              <ItemCard key={item.id} item={item} claims={claims} />
+            ))}
+          </Section>
+        ) : null}
+
+        {view === 'detailed' && notBooked.length ? (
           <Section title={t('pay.notBooked')} aside={<Meta>{money(settlement.notBooked)}</Meta>}>
             <Muted>{t('pay.notBookedBody')}</Muted>
             {notBooked.map((item) => (
@@ -197,8 +253,9 @@ function BalanceHero({ settlement: s, onPay, checkoutOpen }: { settlement: Settl
           {money(s.balance)}
         </Body>
         <Meta color={colors.canvasMuted}>
-          {s.familyDue > 0 && s.balance === 0 ? t('pay.allPaid') : t('pay.balanceSub', { paid: money(s.familyPaid), due: money(s.familyDue), programs: money(s.programsCover) })}
+          {s.familyDue > 0 && s.balance === 0 ? t('pay.allPaid') : t('pay.balanceSub', { paid: money(s.familyPaid), due: money(s.familyDue), insurance: money(s.insuranceCover), programs: money(s.programsCover) })}
         </Meta>
+        {s.credit > 0 ? <Meta color={colors.canvas}>{t('pay.credit', { amount: money(s.credit) })}</Meta> : null}
         <View style={styles.heroBar}>
           <View style={[styles.heroBarFill, { width: `${paidPct}%` }]} />
         </View>
@@ -237,21 +294,23 @@ function MoneyFlow({ settlement: s }: { settlement: Settlement }) {
     <Card>
       <Body weight="medium">{t('pay.flowTitle')}</Body>
       <View style={styles.flowSources}>
-        <View style={{ flex: 1 }}>{node(t('pay.flow.programs'), money(s.programsCover), t('pay.flow.programsSub'), Icons.ShieldCheck, 'good')}</View>
-        <View style={{ flex: 1 }}>{node(t('pay.flow.family'), money(s.familyDue), t('pay.flow.familySub', { paid: money(s.familyPaid) }), Icons.Users, s.balance > 0 ? 'caution' : 'good')}</View>
+        <View style={styles.source}>{node(t('pay.flow.insurance'), money(s.insuranceCover), t('pay.flow.insuranceSub'), Icons.FileText, 'good')}</View>
+        <View style={styles.source}>{node(t('pay.flow.programs'), money(s.programsCover), t('pay.flow.programsSub'), Icons.ShieldCheck, 'good')}</View>
+        <View style={styles.source}>{node(t('pay.flow.family'), money(s.familyDue), t('pay.flow.familySub', { paid: money(s.familyPaid) }), Icons.Users, s.balance > 0 ? 'caution' : 'good')}</View>
       </View>
       {down}
-      {node('CareBridge', money(s.programsCover + s.familyPaid), t('pay.flow.carebridgeSub'), Icons.Wallet, 'deep')}
+      {node('CareBridge', money(s.insuranceCover + s.programsCover + Math.min(s.familyPaid, s.familyDue)), t('pay.flow.carebridgeSub'), Icons.Wallet, 'deep')}
       {down}
       {node(t('pay.flow.services'), money(s.sentToServices), t('pay.flow.servicesSub', { total: money(s.total) }), Icons.HeartHandshake, 'blue')}
     </Card>
   );
 }
 
-function ItemCard({ item }: { item: SettledItem }) {
+function ItemCard({ item, claims }: { item: SettledItem; claims: ClaimActions }) {
   const { t } = useTranslation();
   const money = useMoney();
   const programTotal = item.programLegs.reduce((a, l) => a + l.amount, 0);
+  const insured = item.insurance?.approvedAmount ?? 0;
   const pct = (n: number) => `${item.total > 0 ? (n / item.total) * 100 : 0}%` as const;
   const sent = item.payout === 'sent';
   return (
@@ -271,6 +330,7 @@ function ItemCard({ item }: { item: SettledItem }) {
       </Row>
 
       <View style={styles.split} accessibilityLabel={`${t('pay.whoPays')}: ${money(programTotal)} programs, ${money(item.familyPaid)} family paid, ${money(item.familyShare - item.familyPaid)} family due`}>
+        <View style={{ width: pct(insured), backgroundColor: colors.blueDeep }} />
         <View style={{ width: pct(programTotal), backgroundColor: colors.good }} />
         <View style={{ width: pct(item.familyPaid), backgroundColor: colors.blue }} />
         <View style={{ width: pct(item.familyShare - item.familyPaid), backgroundColor: colors.caution }} />
@@ -278,6 +338,17 @@ function ItemCard({ item }: { item: SettledItem }) {
 
       <View style={styles.legs}>
         <Meta>{t('pay.whoPays').toUpperCase()}</Meta>
+        {item.insurance ? (
+          <Leg
+            from={item.insurance.payerName}
+            to="CareBridge"
+            amount={money(item.insurance.status === 'approved' ? (item.insurance.approvedAmount ?? 0) : item.insurance.estimate)}
+            tone={item.insurance.status === 'approved' ? 'good' : item.insurance.status === 'denied' ? 'caution' : 'blue'}
+            status={insuranceStatusText(item, t, money)}
+            done={item.insurance.status === 'approved'}
+          />
+        ) : null}
+        {item.insurance ? <InsuranceActions item={item} claims={claims} /> : null}
         {item.programLegs.map((l) => (
           <Leg key={l.programId} from={l.programName} to="CareBridge" amount={money(l.amount)} tone="good" status={t('pay.programPaid')} done />
         ))}
@@ -346,6 +417,116 @@ function NotBookedCard({ item, bookHref }: { item: SettledItem; bookHref?: strin
       </View>
       {bookHref ? <Button label={t('pay.bookProvider')} variant="ghost" compact onPress={() => router.push(bookHref as never)} /> : null}
     </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Insurance and the plain-language summary
+// ---------------------------------------------------------------------------
+
+type T = (key: string, params?: Record<string, unknown>) => string;
+const plainName = (name: string) => name.replace(/\s*\(demo\)$/, '');
+
+function insuranceStatusText(item: SettledItem, t: T, money: (n: number) => string) {
+  const ins = item.insurance!;
+  switch (ins.status) {
+    case 'approved':
+      return t('pay.insurance.approved');
+    case 'submitted':
+      return t('pay.insurance.submitted');
+    case 'denied':
+      return `${t('pay.insurance.denied')} · ${t(ins.denialReasonKey ?? 'pay.denials.priorAuth')}`;
+    default:
+      return t('pay.insurance.estimate', { amount: money(ins.estimate) });
+  }
+}
+
+/** Submit / simulated reply / resubmit. Read-only status for caregivers. */
+function InsuranceActions({ item, claims }: { item: SettledItem; claims: ClaimActions }) {
+  const { t } = useTranslation();
+  const ins = item.insurance;
+  if (!ins || ins.status === 'approved' || !claims.canManage) return null;
+  if (ins.status === 'submitted' && ins.claimId) {
+    const id = ins.claimId;
+    return (
+      <View style={styles.claimBox}>
+        <Meta>{t('pay.insurance.simulated')}</Meta>
+        <Row wrap>
+          <Button label={t('pay.insurance.simApprove')} variant="ghost" compact icon={Icons.Check} loading={claims.busy} onPress={() => claims.reply(id, 'approved')} />
+          <Button label={t('pay.insurance.simDeny')} variant="quiet" compact disabled={claims.busy} onPress={() => claims.reply(id, 'denied')} />
+        </Row>
+      </View>
+    );
+  }
+  return (
+    <Button
+      label={ins.status === 'denied' ? t('pay.insurance.resubmit') : t('pay.insurance.submit')}
+      variant={ins.status === 'denied' ? 'quiet' : 'ghost'}
+      compact
+      icon={Icons.FileText}
+      loading={claims.busy}
+      onPress={() => claims.submit(item.id)}
+    />
+  );
+}
+
+/** One plain sentence per item: who pays what, and the one thing that could lower the family share. */
+function plainSentences(item: SettledItem, t: T, money: (n: number) => string): { main: string; hint?: string } {
+  if (!item.payable) return { main: t('pay.simple.notBooked') };
+  const parts: string[] = [];
+  if (item.insurance?.status === 'approved' && item.insurance.approvedAmount) parts.push(t('pay.simple.pays', { who: plainName(item.insurance.payerName), amount: money(item.insurance.approvedAmount) }));
+  for (const l of item.programLegs) parts.push(t('pay.simple.pays', { who: plainName(l.programName), amount: money(l.amount) }));
+  const owed = Math.max(0, item.familyShare - item.familyPaid);
+  if (item.familyShare === 0) parts.push(t('pay.simple.youPayNothing'));
+  else if (owed === 0) parts.push(t('pay.simple.youPaid', { amount: money(item.familyShare) }));
+  else parts.push(item.familyPaid > 0 ? `${t('pay.simple.youPay', { amount: money(owed) })} (${t('pay.simple.alreadyPaid', { amount: money(item.familyPaid) })})` : t('pay.simple.youPay', { amount: money(owed) }));
+  const main = parts.join(', ');
+
+  let hint: string | undefined;
+  const ins = item.insurance;
+  if (ins && ins.status === 'not_submitted' && item.familyShare > 0) hint = t('pay.simple.insuranceCould', { who: plainName(ins.payerName), amount: money(ins.estimate) });
+  else if (ins?.status === 'submitted') hint = t('pay.simple.insuranceWaiting', { who: plainName(ins.payerName), amount: money(ins.estimate) });
+  else if (ins?.status === 'denied') hint = t('pay.simple.insuranceDenied', { who: plainName(ins.payerName), reason: t(ins.denialReasonKey ?? 'pay.denials.priorAuth') });
+  else if (item.pending[0] && item.familyShare > 0) hint = t('pay.simple.programCould', { who: plainName(item.pending[0].programName), amount: money(item.pending[0].upTo) });
+  return { main: main.charAt(0).toUpperCase() + main.slice(1) + '.', hint };
+}
+
+function SimpleSummary({ items, claims }: { items: SettledItem[]; claims: ClaimActions }) {
+  const { t } = useTranslation();
+  const money = useMoney();
+  const ordered = useMemo(() => [...items.filter((i) => i.payable), ...items.filter((i) => !i.payable)], [items]);
+  return (
+    <Card style={{ gap: 0 }}>
+      <Body weight="medium" style={{ paddingBottom: space.sm }}>
+        {t('pay.simple.title')}
+      </Body>
+      {ordered.map((item, i) => {
+        const { main, hint } = plainSentences(item, t, money);
+        const done = item.payable && item.payout === 'sent';
+        return (
+          <View key={item.id}>
+            {i > 0 ? <Hairline /> : null}
+            <View style={styles.simpleRow}>
+              <View style={[styles.kindIcon, done && { backgroundColor: colors.good }, !item.payable && { backgroundColor: colors.inkFaint }]}>
+                <Glyph icon={done ? Icons.Check : kindIcon[item.kind]} size={20} color={item.payable ? colors.canvas : colors.inkMuted} />
+              </View>
+              <View style={{ flex: 1, gap: space.xs }}>
+                <Row style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <Body weight="medium" style={{ flex: 1 }}>
+                    {t(item.labelKey, { defaultValue: item.label })}
+                    {item.detail ? ` · ${item.detail}` : ''}
+                  </Body>
+                  <Body weight="medium">{money(item.total)}</Body>
+                </Row>
+                <Body>{main}</Body>
+                {hint ? <Muted>{hint}</Muted> : null}
+                <InsuranceActions item={item} claims={claims} />
+              </View>
+            </View>
+          </View>
+        );
+      })}
+    </Card>
   );
 }
 
@@ -523,6 +704,9 @@ const styles = StyleSheet.create({
   heroBarFill: { height: 8, borderRadius: 4, backgroundColor: colors.canvas },
 
   flowSources: { flexDirection: 'row', gap: space.sm, flexWrap: 'wrap' },
+  source: { flexGrow: 1, flexBasis: 160 },
+  simpleRow: { flexDirection: 'row', gap: space.md, paddingVertical: space.md, alignItems: 'flex-start' },
+  claimBox: { gap: space.xs, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.blueSoft, borderRadius: radius.card, padding: space.sm },
   node: { borderRadius: radius.card, borderLeftWidth: 4, padding: space.md, gap: 2, minWidth: 140 },
   nodeAmount: { fontSize: 24, lineHeight: 30 },
   arrow: { alignItems: 'center', height: 22 },

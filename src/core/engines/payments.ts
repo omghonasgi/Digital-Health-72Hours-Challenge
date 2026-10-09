@@ -5,6 +5,9 @@ import type {
   BillItem,
   FamilyBill,
   FinancialSummary,
+  InsuranceClaim,
+  InsuranceCoverage,
+  InsuranceType,
   Payment,
   ProviderCompany,
   ResourceKind,
@@ -29,6 +32,29 @@ const DEFAULT_PAYEE: Record<ResourceKind, { providerId?: string; name: string }>
   medication: { name: 'Lakeside Outpatient Pharmacy (demo)' },
 };
 
+/**
+ * Demo coverage rules: the share of an item the patient's insurer pays.
+ * Real rules vary by plan and state; these are hardcoded and labelled.
+ * Non-clinical support (caregiving, meals, rides) is never insurance here;
+ * Medicaid rides go through the NEMT benefit program instead.
+ */
+const INSURER: Partial<Record<InsuranceType, { payerName: string; equipment?: (t: number) => number; medication?: (t: number) => number }>> = {
+  medicaid: { payerName: 'Illinois Medicaid (demo)', equipment: (t) => t - Math.min(t, 2), medication: (t) => t - Math.min(t, 2) },
+  medicare: { payerName: 'Medicare Part B/D (demo)', equipment: (t) => t * 0.8, medication: (t) => t * 0.75 },
+  private: { payerName: 'Employer health plan (demo)', equipment: (t) => t * 0.8, medication: (t) => t * 0.7 },
+  marketplace: { payerName: 'Marketplace plan (demo)', equipment: (t) => t * 0.7, medication: (t) => t * 0.6 },
+};
+
+export function insuranceEstimate(insuranceType: InsuranceType, kind: ResourceKind, total: number): { payerName: string; amount: number } | null {
+  const rule = INSURER[insuranceType];
+  const fn = kind === 'equipment' ? rule?.equipment : kind === 'medication' ? rule?.medication : undefined;
+  if (!rule || !fn) return null;
+  const amount = cents(Math.max(0, Math.min(total, fn(total))));
+  return amount > 0 ? { payerName: rule.payerName, amount } : null;
+}
+
+export const claimIdFor = (patientId: string, itemId: string) => `clm_${patientId}_${itemId}`;
+
 const PENDING: AssistanceStatus[] = ['potentially_eligible', 'application_needed', 'under_review'];
 
 const cents = (n: number) => Math.round(n * 100) / 100;
@@ -41,11 +67,13 @@ export interface BillInput {
   assistanceRequests: AssistanceRequest[];
   serviceRequests: ServiceRequest[];
   providers: ProviderCompany[];
+  insuranceType: InsuranceType;
+  claims: InsuranceClaim[];
   now: string;
 }
 
 export function buildBill(input: BillInput): FamilyBill {
-  const { finance, matches, programs, assistanceRequests, serviceRequests, providers } = input;
+  const { finance, matches, programs, assistanceRequests, serviceRequests, providers, insuranceType, claims } = input;
   const items: BillItem[] = [];
 
   for (const line of finance.lines) {
@@ -56,6 +84,22 @@ export function buildBill(input: BillInput): FamilyBill {
     const total = line.estimatedCost;
 
     let left = total;
+    const est = insuranceEstimate(insuranceType, line.kind, total);
+    const claim = claims.find((c) => c.itemId === line.id);
+    let insurance: InsuranceCoverage | undefined;
+    if (est || claim) {
+      const approved = claim?.status === 'approved' ? cents(Math.min(left, claim.approvedAmount ?? 0)) : undefined;
+      if (approved) left -= approved;
+      insurance = {
+        payerName: claim?.payerName ?? est!.payerName,
+        estimate: est?.amount ?? claim?.requestedAmount ?? 0,
+        status: claim?.status ?? 'not_submitted',
+        approvedAmount: approved,
+        claimId: claim?.id,
+        denialReasonKey: claim?.denialReasonKey,
+      };
+    }
+
     const programLegs = assistanceRequests
       .filter((a) => a.status === 'approved' && a.requirementId === line.requirementId && (a.approvedAmount ?? 0) > 0)
       .map((a) => {
@@ -82,6 +126,7 @@ export function buildBill(input: BillInput): FamilyBill {
       payable: line.kind !== 'caregiving' || !!booked,
       payeeName: bookedProvider?.companyName ?? fallback.name,
       payeeProviderId: bookedProvider?.id ?? fallback.providerId,
+      insurance,
       programLegs,
       pending,
       familyShare,
@@ -104,10 +149,13 @@ export interface Settlement {
   items: SettledItem[];
   /** Sum of payable items. */
   total: number;
+  insuranceCover: number;
   programsCover: number;
   familyDue: number;
   familyPaid: number;
   balance: number;
+  /** Family paid more than its share after a late approval; refunded (simulated). */
+  credit: number;
   /** Paid out by CareBridge to services so far. */
   sentToServices: number;
   /** Totals of items that can't be paid until booked. */
@@ -155,10 +203,12 @@ export function settleBill(bill: FamilyBill | null, payments: Payment[]): Settle
   return {
     items: settled,
     total: sum(payable.map((i) => i.total)),
+    insuranceCover: sum(payable.map((i) => i.insurance?.approvedAmount ?? 0)),
     programsCover: sum(payable.flatMap((i) => i.programLegs.map((l) => l.amount))),
     familyDue,
     familyPaid,
     balance: cents(Math.max(0, familyDue - familyPaid)),
+    credit: cents(Math.max(0, familyPaid - familyDue)),
     sentToServices: sum(payable.filter((i) => i.payout === 'sent').map((i) => i.total)),
     notBooked: sum(settled.filter((i) => !i.payable).map((i) => i.total)),
   };

@@ -21,7 +21,7 @@ import { emptyStore, type Store } from './store';
  * first Friday at least two days out, discharge 14:30 in the patient's zone.
  */
 
-export const SEED_VERSION = 8;
+export const SEED_VERSION = 9;
 export const DEMO_TZ = 'America/Chicago';
 export const DEMO_ORG = 'org_lakeside';
 

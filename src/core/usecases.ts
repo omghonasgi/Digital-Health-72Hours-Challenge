@@ -5,7 +5,7 @@ import { detectConflicts } from './engines/conflicts';
 import { computeFinancials, matchAssistancePrograms, type ProgramMatch } from './engines/finance';
 import { detectGaps, type CoverageSummary } from './engines/gaps';
 import { matchProviders } from './engines/matching';
-import { buildBill, settleBill } from './engines/payments';
+import { buildBill, claimIdFor, settleBill } from './engines/payments';
 import { escalationNotification, dueReminders } from './engines/notifications';
 import { applyTransition, markMissed } from './engines/tasks';
 import { capabilityToService } from './engines/catalog';
@@ -22,6 +22,7 @@ import type {
   DischargeDocument,
   FamilyBill,
   FinancialSummary,
+  InsuranceClaim,
   GapStatus,
   Interval,
   Patient,
@@ -170,7 +171,7 @@ export async function getPlan(repo: Repository, patientId: string, now = nowIso(
 export async function publishBill(repo: Repository, patientId: string, now = nowIso()): Promise<FamilyBill | null> {
   try {
     const plan = await getPlan(repo, patientId, now);
-    const [programs, providers] = await Promise.all([repo.listPrograms(), repo.listProviders()]);
+    const [programs, providers, claims] = await Promise.all([repo.listPrograms(), repo.listProviders(), repo.listInsuranceClaims(patientId)]);
     const bill = buildBill({
       patientId,
       finance: plan.finance,
@@ -179,6 +180,8 @@ export async function publishBill(repo: Repository, patientId: string, now = now
       assistanceRequests: plan.assistanceRequests,
       serviceRequests: plan.serviceRequests,
       providers,
+      insuranceType: plan.patient.insuranceType,
+      claims,
       now,
     });
     return await repo.saveBill(bill);
@@ -186,6 +189,41 @@ export async function publishBill(repo: Repository, patientId: string, now = now
     if (e instanceof AccessDenied) return null;
     throw e;
   }
+}
+
+/** Sends the item's estimated coverage to the insurer as a claim (simulated). Resubmitting replaces a denied claim. */
+export async function submitInsuranceClaim(repo: Repository, patientId: string, itemId: string) {
+  const bill = await repo.getBill(patientId);
+  const item = bill?.items.find((i) => i.id === itemId);
+  if (!item?.insurance) throw new Error('Insurance does not cover this item.');
+  if (item.insurance.status === 'submitted' || item.insurance.status === 'approved') return null;
+  const claim: InsuranceClaim = {
+    id: claimIdFor(patientId, itemId),
+    patientId,
+    itemId,
+    payerName: item.insurance.payerName,
+    requestedAmount: item.insurance.estimate,
+    status: 'submitted',
+    updatedAt: nowIso(),
+    isSimulated: true,
+  };
+  await repo.saveInsuranceClaim(claim);
+  await publishBill(repo, patientId);
+  return claim;
+}
+
+/** Demo stand-in for the insurer's decision. Clearly labelled in the UI, like the simulated provider reply. */
+export async function simulateInsuranceReply(repo: Repository, patientId: string, claimId: string, decision: 'approved' | 'denied') {
+  const claim = (await repo.listInsuranceClaims(patientId)).find((c) => c.id === claimId);
+  if (!claim || claim.status !== 'submitted') throw new Error('No pending claim to answer.');
+  await repo.saveInsuranceClaim({
+    ...claim,
+    status: decision,
+    approvedAmount: decision === 'approved' ? claim.requestedAmount : undefined,
+    denialReasonKey: decision === 'denied' ? 'pay.denials.priorAuth' : undefined,
+    updatedAt: nowIso(),
+  });
+  await publishBill(repo, patientId);
 }
 
 export async function payFamilyShare(

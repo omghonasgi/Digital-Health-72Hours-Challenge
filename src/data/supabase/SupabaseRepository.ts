@@ -8,6 +8,7 @@ import type {
   ClinicalReview,
   DischargeDocument,
   FamilyBill,
+  InsuranceClaim,
   Notification,
   Patient,
   PatientEquipment,
@@ -180,6 +181,9 @@ export class SupabaseRepository implements Repository {
     if (error) throw this.wrap(error);
     return p;
   };
+
+  listInsuranceClaims = (patientId: string) => this.rows<InsuranceClaim>('insurance_claims', { eq: { patient_id: patientId } });
+  saveInsuranceClaim = (c: InsuranceClaim) => this.upsert('insurance_claims', c);
 
   // tasks
   listTasks = (patientId: string) => this.rows<RecoveryTask>('recovery_tasks', { eq: { patient_id: patientId }, order: { col: 'scheduled_at' } });

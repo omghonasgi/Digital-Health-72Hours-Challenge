@@ -7,6 +7,7 @@ import type {
   ClinicalReview,
   DischargeDocument,
   FamilyBill,
+  InsuranceClaim,
   Notification,
   Patient,
   PatientEquipment,
@@ -47,6 +48,7 @@ export interface Store {
   assistanceRequests: AssistanceRequest[];
   bills: FamilyBill[];
   payments: Payment[];
+  insuranceClaims: InsuranceClaim[];
   tasks: RecoveryTask[];
   taskEvents: TaskEvent[];
   notifications: Notification[];
@@ -73,6 +75,7 @@ export const emptyStore = (): Store => ({
   assistanceRequests: [],
   bills: [],
   payments: [],
+  insuranceClaims: [],
   tasks: [],
   taskEvents: [],
   notifications: [],

@@ -7,5 +7,5 @@ export default function PatientPay() {
   const { session } = useSession();
   if (!session?.patientId) return <Redirect href="/patient" />;
   // The patient side republishes the bill from the live plan so caregivers see current numbers.
-  return <PayScreen patientId={session.patientId} publish bookHref="/patient/caregivers" />;
+  return <PayScreen patientId={session.patientId} publish canManage bookHref="/patient/caregivers" />;
 }

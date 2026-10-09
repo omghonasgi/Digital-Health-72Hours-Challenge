@@ -506,6 +506,35 @@ export interface PendingFunding {
   status: AssistanceStatus;
 }
 
+export type ClaimStatus = 'submitted' | 'approved' | 'denied';
+
+/** A simulated claim to the patient's insurer for one bill item. */
+export interface InsuranceClaim {
+  /** Deterministic per item (`clm_<patient>_<item>`) so a resubmission replaces the old claim. */
+  id: string;
+  patientId: string;
+  itemId: string;
+  payerName: string;
+  requestedAmount: number;
+  approvedAmount?: number;
+  status: ClaimStatus;
+  /** i18n key under `pay.denials.*` */
+  denialReasonKey?: string;
+  updatedAt: ISODate;
+  isSimulated: true;
+}
+
+/** What insurance does for one bill item: the estimate, and the claim if there is one. */
+export interface InsuranceCoverage {
+  payerName: string;
+  /** Demo coverage rule estimate. Not counted until approved. */
+  estimate: number;
+  status: 'not_submitted' | ClaimStatus;
+  approvedAmount?: number;
+  claimId?: string;
+  denialReasonKey?: string;
+}
+
 export interface BillItem {
   /** Same id as the cost line it was built from. */
   id: string;
@@ -521,6 +550,8 @@ export interface BillItem {
   payable: boolean;
   payeeName: string;
   payeeProviderId?: string;
+  /** Insurance pays first. Only an approved claim reduces the family share. */
+  insurance?: InsuranceCoverage;
   /** Approved program money CareBridge collects for this item. */
   programLegs: FundingLeg[];
   /** Programs that might still cover part of it. Never subtracted. */

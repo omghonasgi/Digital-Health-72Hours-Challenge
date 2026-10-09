@@ -6,6 +6,7 @@ import type {
   ClinicalReview,
   DischargeDocument,
   FamilyBill,
+  InsuranceClaim,
   Notification,
   Patient,
   PatientEquipment,
@@ -379,6 +380,17 @@ export class LocalRepository implements Repository {
     this.store.payments.push(p);
     await this.commit();
     return p;
+  }
+
+  async listInsuranceClaims(patientId: string) {
+    this.requireFull(patientId);
+    return this.store.insuranceClaims.filter((c) => c.patientId === patientId);
+  }
+  async saveInsuranceClaim(c: InsuranceClaim) {
+    this.requireFull(c.patientId);
+    this.upsert(this.store.insuranceClaims, c);
+    await this.commit();
+    return c;
   }
 
   // -- tasks -----------------------------------------------------------------------------------------

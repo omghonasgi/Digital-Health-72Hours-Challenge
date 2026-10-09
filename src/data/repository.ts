@@ -7,6 +7,7 @@ import type {
   ClinicalReview,
   DischargeDocument,
   FamilyBill,
+  InsuranceClaim,
   Notification,
   Patient,
   PatientEquipment,
@@ -98,6 +99,9 @@ export interface Repository {
   listPayments(patientId: string): Promise<Payment[]>;
   /** Anyone who can read the bill may pay toward it, only as themselves. Payments are never edited. */
   addPayment(p: Payment): Promise<Payment>;
+  /** Patient or coordinator only. Caregivers see claim status through the bill. */
+  listInsuranceClaims(patientId: string): Promise<InsuranceClaim[]>;
+  saveInsuranceClaim(c: InsuranceClaim): Promise<InsuranceClaim>;
 
   // tasks
   listTasks(patientId: string): Promise<RecoveryTask[]>;
