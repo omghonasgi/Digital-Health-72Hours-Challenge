@@ -4,6 +4,7 @@ import type { Language, Profile, Role, Session } from '@/core/types';
 import { newId } from './repository';
 import { LocalAuth } from './local/LocalAuth';
 import { LocalRepository } from './local/LocalRepository';
+import { primeDemoStore } from './local/prime';
 import { buildDemoStore } from './local/seed';
 import { AsyncStorageAdapter } from './local/storage';
 import type { Store } from './local/store';
@@ -55,7 +56,10 @@ function createLocal(): DataLayer {
     async init() {
       const loaded = await storage.load();
       if (loaded) store = loaded;
-      else await storage.save(store);
+      else {
+        await primeDemoStore(store);
+        await storage.save(store);
+      }
       auth = new LocalAuth(store, () => storage.save(store));
       const pid = await AsyncStorage.getItem(SESSION_KEY);
       return pid ? auth.sessionFor(pid) : null;
@@ -83,6 +87,7 @@ function createLocal(): DataLayer {
     async resetDemo() {
       await storage.clear();
       store = buildDemoStore();
+      await primeDemoStore(store);
       await storage.save(store);
       auth = new LocalAuth(store, () => storage.save(store));
       await AsyncStorage.removeItem(SESSION_KEY);

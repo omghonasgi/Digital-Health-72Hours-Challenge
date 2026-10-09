@@ -11,6 +11,7 @@ export default function CaregiverLayout() {
     { href: '/caregiver/plan' as Href, label: t('nav.plan'), icon: Icons.HeartHandshake },
     { href: '/caregiver/availability', label: t('nav.availability'), icon: Icons.Calendar },
     { href: '/caregiver/instructions', label: t('nav.instructions'), icon: Icons.FileText },
+    { href: '/caregiver/pay', label: t('nav.pay'), icon: Icons.CreditCard },
     { href: '/caregiver/settings', label: t('nav.settings'), icon: Icons.Settings },
   ];
   return (

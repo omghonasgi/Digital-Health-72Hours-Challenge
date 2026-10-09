@@ -6,9 +6,11 @@ import type {
   ClinicalInstruction,
   ClinicalReview,
   DischargeDocument,
+  FamilyBill,
   Notification,
   Patient,
   PatientEquipment,
+  Payment,
   Profile,
   ProviderAvailability,
   ProviderCompany,
@@ -43,6 +45,8 @@ export interface Store {
   serviceRequests: ServiceRequest[];
   programs: AssistanceProgram[];
   assistanceRequests: AssistanceRequest[];
+  bills: FamilyBill[];
+  payments: Payment[];
   tasks: RecoveryTask[];
   taskEvents: TaskEvent[];
   notifications: Notification[];
@@ -67,6 +71,8 @@ export const emptyStore = (): Store => ({
   serviceRequests: [],
   programs: [],
   assistanceRequests: [],
+  bills: [],
+  payments: [],
   tasks: [],
   taskEvents: [],
   notifications: [],

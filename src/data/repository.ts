@@ -6,9 +6,11 @@ import type {
   ClinicalInstruction,
   ClinicalReview,
   DischargeDocument,
+  FamilyBill,
   Notification,
   Patient,
   PatientEquipment,
+  Payment,
   Profile,
   ProviderAvailability,
   ProviderCompany,
@@ -87,6 +89,15 @@ export interface Repository {
   listPrograms(): Promise<AssistanceProgram[]>;
   listAssistanceRequests(patientId: string): Promise<AssistanceRequest[]>;
   saveAssistanceRequest(a: AssistanceRequest): Promise<AssistanceRequest>;
+
+  // payments (simulated; CareBridge is the middle party)
+  /** Readable by the patient, their coordinators, and active caregivers. */
+  getBill(patientId: string): Promise<FamilyBill | null>;
+  /** Patient or coordinator only: publishes the current bill snapshot. */
+  saveBill(b: FamilyBill): Promise<FamilyBill>;
+  listPayments(patientId: string): Promise<Payment[]>;
+  /** Anyone who can read the bill may pay toward it, only as themselves. Payments are never edited. */
+  addPayment(p: Payment): Promise<Payment>;
 
   // tasks
   listTasks(patientId: string): Promise<RecoveryTask[]>;

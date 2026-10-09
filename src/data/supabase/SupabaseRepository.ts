@@ -7,9 +7,11 @@ import type {
   ClinicalInstruction,
   ClinicalReview,
   DischargeDocument,
+  FamilyBill,
   Notification,
   Patient,
   PatientEquipment,
+  Payment,
   Profile,
   ProviderAvailability,
   ProviderCompany,
@@ -168,6 +170,16 @@ export class SupabaseRepository implements Repository {
   listPrograms = async () => (await this.rows<AssistanceProgram>('assistance_programs')).map((p) => ({ ...p, isSimulated: true as const }));
   listAssistanceRequests = (patientId: string) => this.rows<AssistanceRequest>('assistance_requests', { eq: { patient_id: patientId } });
   saveAssistanceRequest = (a: AssistanceRequest) => this.upsert('assistance_requests', a);
+
+  // payments (RLS: see supabase/migrations/0002_payments.sql)
+  getBill = (patientId: string) => this.one<FamilyBill>('family_bills', 'patient_id', patientId);
+  saveBill = (b: FamilyBill) => this.upsert('family_bills', b);
+  listPayments = (patientId: string) => this.rows<Payment>('payments', { eq: { patient_id: patientId }, order: { col: 'created_at' } });
+  addPayment = async (p: Payment) => {
+    const { error } = await this.db.from('payments').insert(toRow(p));
+    if (error) throw this.wrap(error);
+    return p;
+  };
 
   // tasks
   listTasks = (patientId: string) => this.rows<RecoveryTask>('recovery_tasks', { eq: { patient_id: patientId }, order: { col: 'scheduled_at' } });
