@@ -73,7 +73,11 @@ export class LocalRepository implements Repository {
     if (!patient) return me.role === 'patient' ? 'full' : null; // new record being created by its owner
     if (me.role === 'coordinator') return (patient.organizationId ?? me.organizationId) === me.organizationId ? 'full' : null;
     if (me.role === 'patient') return patient.profileId === me.id ? 'full' : null;
-    if (me.role === 'caregiver') return this.myCaregiverRecords().some((c) => c.patientId === patientId) ? 'caregiver' : null;
+    if (me.role === 'caregiver') {
+      const rec = this.myCaregiverRecords().find((c) => c.patientId === patientId);
+      if (!rec) return null;
+      return rec.proxyAccess ? 'full' : 'caregiver';
+    }
     return null;
   }
 
@@ -85,6 +89,10 @@ export class LocalRepository implements Repository {
     const a = this.access(patientId);
     if (!a) throw new AccessDenied();
     return a;
+  }
+
+  private hasProxyAccess() {
+    return this.myCaregiverRecords().some((c) => c.proxyAccess && c.acceptedInvitation && c.consentStatus === 'granted');
   }
 
   private async commit() {
@@ -149,11 +157,24 @@ export class LocalRepository implements Repository {
     if (me.role === 'coordinator') return this.store.patients.filter((p) => (p.organizationId ?? me.organizationId) === me.organizationId);
     if (me.role === 'patient') return this.store.patients.filter((p) => p.profileId === me.id);
     const ids = new Set(this.myCaregiverRecords().map((c) => c.patientId));
-    return this.store.patients.filter((p) => ids.has(p.id)).map((p) => this.redact(p, 'caregiver'));
+    return this.store.patients.filter((p) => ids.has(p.id)).map((p) => this.redact(p, this.access(p.id)));
+  }
+  async getPatientByAccessCode(code: string) {
+    if (this.me.role !== 'caregiver') throw new AccessDenied();
+    const needle = code.trim().toUpperCase();
+    const p = this.store.patients.find((x) => x.accessCode?.toUpperCase() === needle);
+    if (!p) return null;
+    // Code holders see identity only until they redeem it; finances stay blank here.
+    return this.redact(p, 'caregiver');
   }
   async savePatient(p: Patient) {
     this.requireFull(p.id);
+    const prev = this.store.patients.find((x) => x.id === p.id);
     if (this.me.role === 'patient' && p.profileId !== this.me.id) throw new AccessDenied();
+    if (this.me.role === 'caregiver') {
+      if (!prev || prev.profileId !== p.profileId) throw new AccessDenied();
+      p.accessCode = prev.accessCode;
+    }
     this.upsert(this.store.patients, p);
     await this.commit();
     return p;
@@ -253,8 +274,8 @@ export class LocalRepository implements Repository {
   async saveInstruction(i: ClinicalInstruction) {
     this.requireFull(i.patientId);
     const prev = this.store.instructions.find((x) => x.id === i.id);
-    if (this.me.role === 'patient') {
-      // Patients may enter and edit drafts; review is a coordinator action.
+    if (this.me.role !== 'coordinator') {
+      // Patients and proxy caregivers may enter drafts; review is a coordinator action.
       if (i.reviewStatus !== 'draft' || (prev && prev.reviewStatus !== 'draft')) throw new AccessDenied('Only a coordinator can review instructions.');
     }
     this.upsert(this.store.instructions, i);
@@ -265,7 +286,7 @@ export class LocalRepository implements Repository {
     const i = this.store.instructions.find((x) => x.id === id);
     if (!i) return;
     this.requireFull(i.patientId);
-    if (this.me.role === 'patient' && i.reviewStatus !== 'draft') throw new AccessDenied();
+    if (this.me.role !== 'coordinator' && i.reviewStatus !== 'draft') throw new AccessDenied();
     this.store.instructions = this.store.instructions.filter((x) => x.id !== id);
     await this.commit();
   }
@@ -300,7 +321,7 @@ export class LocalRepository implements Repository {
   // -- providers and programs ------------------------------------------------------------------
 
   async listProviders() {
-    if (this.me.role === 'caregiver' && !this.systemMode) throw new AccessDenied();
+    if (this.me.role === 'caregiver' && !this.systemMode && !this.hasProxyAccess()) throw new AccessDenied();
     return this.store.providers;
   }
   async listProviderAvailability() {
@@ -319,7 +340,7 @@ export class LocalRepository implements Repository {
     return r;
   }
   async listPrograms() {
-    if (this.me.role === 'caregiver' && !this.systemMode) throw new AccessDenied();
+    if (this.me.role === 'caregiver' && !this.systemMode && !this.hasProxyAccess()) throw new AccessDenied();
     return this.store.programs;
   }
   async listAssistanceRequests(patientId: string) {

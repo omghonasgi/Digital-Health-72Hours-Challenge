@@ -8,6 +8,7 @@ import { matchProviders } from './engines/matching';
 import { escalationNotification, dueReminders } from './engines/notifications';
 import { applyTransition, markMissed } from './engines/tasks';
 import { capabilityToService } from './engines/catalog';
+import { isPlanCode, makeInviteCode, makePlanCode, normalizeCode } from './codes';
 import type { IntakeInput, InstructionInput } from './schemas';
 import { ms } from './time';
 import type {
@@ -179,6 +180,7 @@ export async function submitIntake(repo: Repository, session: Session, input: In
     financialConcerns: input.financialConcerns,
     homeEnvironment: input.homeEnvironment,
     intakeCompletedAt: now,
+    accessCode: existing?.accessCode ?? makePlanCode(input.displayName),
     createdAt: existing?.createdAt ?? now,
   };
   await repo.savePatient(patient);
@@ -222,6 +224,7 @@ export async function submitIntake(repo: Repository, session: Session, input: In
       // Entering a name is not consent. Both flip only when the caregiver accepts.
       acceptedInvitation: prev?.acceptedInvitation ?? false,
       consentStatus: prev?.consentStatus ?? 'pending',
+      proxyAccess: prev?.proxyAccess ?? false,
       createdAt: prev?.createdAt ?? now,
     };
     await repo.saveCaregiver(caregiver);
@@ -230,16 +233,17 @@ export async function submitIntake(repo: Repository, session: Session, input: In
       c.availability.map((b, i) => ({ id: `av_${id}_${i}_${Date.parse(b.startAt).toString(36)}`, caregiverId: id, startAt: b.startAt, endAt: b.endAt, confirmed: false })),
     );
   }
-  for (const p of prevCaregivers) if (!keep.has(p.id)) await repo.deleteCaregiver(p.id);
+  for (const p of prevCaregivers) {
+    if (keep.has(p.id)) continue;
+    // Linked accounts (invite or plan code) are not removed by editing the intake list.
+    if (p.profileId) continue;
+    await repo.deleteCaregiver(p.id);
+  }
 
   await refreshPlan(repo, patientId, now);
   return patient;
 }
 
-function makeInviteCode(name: string) {
-  const stem = name.split(/\s+/)[0].replace(/[^a-z]/gi, '').toUpperCase().slice(0, 6) || 'CARE';
-  return `${stem}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-}
 
 // ---------------------------------------------------------------------------
 // Instructions and review
@@ -545,10 +549,54 @@ export async function acceptInvite(repo: Repository, session: Session, code: str
   if (session.profile.role !== 'caregiver') throw new Error('Only a caregiver account can accept an invitation');
   const cg = await repo.getCaregiverByInvite(code);
   if (!cg) throw new Error('Invitation code not found');
-  const accepted: Caregiver = { ...cg, profileId: session.profile.id, acceptedInvitation: true, consentStatus: 'granted' };
+  const accepted: Caregiver = { ...cg, profileId: session.profile.id, acceptedInvitation: true, consentStatus: 'granted', proxyAccess: cg.proxyAccess ?? false };
   await repo.saveCaregiver(accepted);
   await refreshAsSystem(repo, cg.patientId);
   return accepted;
+}
+
+/**
+ * Patient plan code: the patient shared it so this caregiver may enter their
+ * assessment, instructions and resources. Consent is the code plus the toggle on the form.
+ */
+export async function acceptPatientAccess(
+  repo: Repository, session: Session, code: string, extras?: { relationship?: string },
+) {
+  if (session.profile.role !== 'caregiver') throw new Error('Only a caregiver account can use a plan code');
+  const patient = await repo.getPatientByAccessCode(code);
+  if (!patient) throw new Error('Plan code not found');
+  const existing = (await repo.listCaregiversByProfile(session.profile.id)).find((c) => c.patientId === patient.id);
+  const cg: Caregiver = existing
+    ? { ...existing, acceptedInvitation: true, consentStatus: 'granted', proxyAccess: true, relationship: extras?.relationship?.trim() || existing.relationship }
+    : {
+        id: newId('cg'),
+        patientId: patient.id,
+        profileId: session.profile.id,
+        name: session.profile.displayName,
+        relationship: extras?.relationship?.trim() || 'Caregiver',
+        languages: [session.profile.preferredLanguage],
+        capabilities: ['supervision', 'transport', 'meals', 'basic_tasks'],
+        willingForAssigned: true,
+        needsTranslatedInstructions: false,
+        inviteCode: makeInviteCode(session.profile.displayName),
+        acceptedInvitation: true,
+        consentStatus: 'granted',
+        proxyAccess: true,
+        createdAt: nowIso(),
+      };
+  await repo.saveCaregiver(cg);
+  await refreshAsSystem(repo, patient.id);
+  return { caregiver: cg, patient };
+}
+
+/** One entry point for both plan codes (PLAN-…) and task invite codes. */
+export async function redeemCode(repo: Repository, session: Session, code: string, extras?: { relationship?: string }) {
+  const normalized = normalizeCode(code);
+  if (isPlanCode(normalized) || (await repo.getPatientByAccessCode(normalized))) {
+    return { kind: 'plan' as const, ...(await acceptPatientAccess(repo, session, normalized, extras)) };
+  }
+  const caregiver = await acceptInvite(repo, session, normalized);
+  return { kind: 'invite' as const, caregiver, patient: await repo.getPatient(caregiver.patientId) };
 }
 
 /** Caregivers can't read the whole plan, so their actions re-run it with a system-scoped view. */
@@ -568,7 +616,7 @@ export async function setAvailability(repo: Repository, caregiver: Caregiver, bl
   await refreshAsSystem(repo, caregiver.patientId);
 }
 
-export async function addCaregiver(repo: Repository, patientId: string, input: Omit<Caregiver, 'id' | 'patientId' | 'inviteCode' | 'acceptedInvitation' | 'consentStatus' | 'createdAt'>, blocks: { startAt: string; endAt: string }[]) {
+export async function addCaregiver(repo: Repository, patientId: string, input: Omit<Caregiver, 'id' | 'patientId' | 'inviteCode' | 'acceptedInvitation' | 'consentStatus' | 'createdAt' | 'proxyAccess'>, blocks: { startAt: string; endAt: string }[]) {
   const cg: Caregiver = {
     ...input,
     id: newId('cg'),
@@ -576,6 +624,7 @@ export async function addCaregiver(repo: Repository, patientId: string, input: O
     inviteCode: makeInviteCode(input.name),
     acceptedInvitation: false,
     consentStatus: 'pending',
+    proxyAccess: false,
     createdAt: nowIso(),
   };
   await repo.saveCaregiver(cg);

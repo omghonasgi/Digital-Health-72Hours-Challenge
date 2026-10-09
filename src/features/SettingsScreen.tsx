@@ -7,7 +7,7 @@ import { useAction } from '@/state/usePlan';
 import { BOTTOM_BAR_HEIGHT, Body, Button, Card, Choice, ConfirmSheet, Field, KeyValue, Meta, Muted, Screen, Section, colors } from '@/ui';
 
 /** Shared settings: language, account, data mode, demo reset. Same for all roles. */
-export function SettingsScreen({ extra }: { extra?: React.ReactNode }) {
+export function SettingsScreen({ lead, extra }: { lead?: React.ReactNode; extra?: React.ReactNode }) {
   const { t, i18n } = useTranslation();
   const router = useRouter();
   const { session, mode, changeLanguage, signOut, resetDemo } = useSession();
@@ -17,6 +17,7 @@ export function SettingsScreen({ extra }: { extra?: React.ReactNode }) {
 
   return (
     <Screen title={t('settings.title')} bottomInset={BOTTOM_BAR_HEIGHT}>
+      {lead}
       <Section title={t('settings.language')}>
         <Card>
           <Field label={t('common.language')} hint={t('settings.languageHelp')}>

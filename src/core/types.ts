@@ -89,6 +89,8 @@ export interface Patient {
   financialConcerns: FinancialConcerns;
   homeEnvironment: HomeEnvironment;
   intakeCompletedAt?: ISODate;
+  /** Share this before intake so a caregiver can enter the assessment. The code is the consent. */
+  accessCode: string;
   createdAt: ISODate;
 }
 
@@ -132,6 +134,8 @@ export interface Caregiver {
   inviteCode: string;
   acceptedInvitation: boolean;
   consentStatus: ConsentStatus;
+  /** True when the caregiver joined with the patient's plan code and may enter their information. */
+  proxyAccess: boolean;
   createdAt: ISODate;
 }
 

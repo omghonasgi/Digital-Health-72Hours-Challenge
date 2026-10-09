@@ -8,10 +8,13 @@ import { matchProviders } from '../engines/matching';
 import { computeFinancials } from '../engines/finance';
 import { applyTransition, TransitionError } from '../engines/tasks';
 import { detectConflicts } from '../engines/conflicts';
-import { getPlan, refreshPlan, requestService, matchProvidersFor, reportBarrier, transitionTask, confirmResource, acceptInvite } from '../usecases';
+import { getPlan, refreshPlan, requestService, matchProvidersFor, reportBarrier, transitionTask, confirmResource, acceptInvite, redeemCode, submitIntake } from '../usecases';
 import { tTitle } from '@/i18n';
-import { asJordan, asMaria, asSofia, asJames, demoStore, FIXED_NOW } from './helpers';
+import { asJordan, asMaria, asSofia, asJames, demoStore, FIXED_NOW, repoFor } from './helpers';
+import { LocalAuth } from '@/data/local/LocalAuth';
+import type { IntakeInput } from '../schemas';
 import type { AssistanceRequest, Caregiver } from '../types';
+import type { Store } from '@/data/local/store';
 
 const NOW = FIXED_NOW.toISOString();
 
@@ -312,3 +315,71 @@ describe('15. Service requests', () => {
     expect(plan.tasks.filter((t) => t.requiredResources.includes('walker')).every((t) => t.status === 'scheduled')).toBe(true);
   });
 });
+
+describe('16. Patient plan codes', () => {
+  it('issues a plan code at patient signup before any assessment is entered', async () => {
+    const store = demoStore();
+    const auth = new LocalAuth(store, async () => undefined);
+    const session = await auth.signUp({ email: 'alex@example.com', password: 'demo', displayName: 'Alex Patient', role: 'patient', preferredLanguage: 'en' });
+    expect(session.patientId).toBeTruthy();
+    const patient = store.patients.find((p) => p.id === session.patientId)!;
+    expect(patient.accessCode.startsWith('PLAN-')).toBe(true);
+    expect(patient.intakeCompletedAt).toBeUndefined();
+    const { repo } = repoFor(store, session.profile.id);
+    const plan = await getPlan(repo, session.patientId!);
+    expect(plan.patient.accessCode).toBe(patient.accessCode);
+  });
+
+  it('lets a caregiver redeem a plan code and enter the patient’s assessment', async () => {
+    const store = demoStore();
+    const sofia = asSofia(store);
+    await expect(sofia.repo.listGaps(DEMO_IDS.maria)).rejects.toBeInstanceOf(AccessDenied);
+    const result = await redeemCode(sofia.repo, sofia.session, 'plan-maria', { relationship: 'Daughter' });
+    expect(result.kind).toBe('plan');
+    expect(result.caregiver.proxyAccess).toBe(true);
+    const visible = await sofia.repo.getPatient(DEMO_IDS.maria);
+    expect(visible?.recoveryBudget).toBe(100);
+    expect((await sofia.repo.listGaps(DEMO_IDS.maria)).length).toBeGreaterThan(0);
+
+    await submitIntake(sofia.repo, sofia.session, intakeFrom(store, DEMO_IDS.maria, { procedureName: 'Updated procedure', zip: '60614' }), visible!);
+    expect((await sofia.repo.getPatient(DEMO_IDS.maria))?.procedureName).toBe('Updated procedure');
+    expect((await sofia.repo.getPatient(DEMO_IDS.maria))?.zip).toBe('60614');
+    expect((await asMaria(store).repo.getPatient(DEMO_IDS.maria))?.accessCode).toBe('PLAN-MARIA');
+  });
+});
+
+function intakeFrom(store: Store, patientId: string, patch: Partial<IntakeInput> = {}): IntakeInput {
+  const p = store.patients.find((x) => x.id === patientId)!;
+  const caregivers = store.caregivers.filter((c) => c.patientId === patientId);
+  return {
+    displayName: p.displayName,
+    ageRange: p.ageRange,
+    preferredLanguage: p.preferredLanguage,
+    zip: p.zip,
+    city: p.city,
+    procedureName: p.procedureName,
+    facility: p.facility,
+    surgeryDate: p.surgeryDate,
+    dischargeAt: p.dischargeAt,
+    timezone: p.timezone,
+    insuranceType: p.insuranceType,
+    recoveryBudget: p.recoveryBudget,
+    incomeRange: p.incomeRange,
+    financialConcerns: p.financialConcerns,
+    homeEnvironment: p.homeEnvironment,
+    equipment: store.equipment
+      .filter((e) => e.patientId === patientId)
+      .map((e) => ({ equipmentName: e.equipmentName, otherLabel: e.otherLabel, availabilityStatus: e.availabilityStatus })),
+    caregivers: caregivers.map((c) => ({
+      id: c.id,
+      name: c.name,
+      relationship: c.relationship,
+      languages: c.languages,
+      capabilities: c.capabilities,
+      willingForAssigned: c.willingForAssigned,
+      needsTranslatedInstructions: c.needsTranslatedInstructions,
+      availability: store.availability.filter((a) => a.caregiverId === c.id).map((a) => ({ startAt: a.startAt, endAt: a.endAt })),
+    })),
+    ...patch,
+  };
+}

@@ -21,7 +21,7 @@ import { emptyStore, type Store } from './store';
  * first Friday at least two days out, discharge 14:30 in the patient's zone.
  */
 
-export const SEED_VERSION = 7;
+export const SEED_VERSION = 8;
 export const DEMO_TZ = 'America/Chicago';
 export const DEMO_ORG = 'org_lakeside';
 
@@ -107,6 +107,7 @@ export function buildDemoStore(now = new Date()): Store {
       followUpTransport: 'none',
     },
     intakeCompletedAt: created,
+    accessCode: 'PLAN-MARIA',
     createdAt: created,
   };
   const james: Patient = {
@@ -137,6 +138,7 @@ export function buildDemoStore(now = new Date()): Store {
       followUpTransport: 'confirmed',
     },
     intakeCompletedAt: created,
+    accessCode: 'PLAN-JAMES',
     createdAt: created,
   };
   store.patients = [maria, james];
@@ -173,6 +175,7 @@ export function buildDemoStore(now = new Date()): Store {
     inviteCode: 'SOFIA-2026',
     acceptedInvitation: true,
     consentStatus: 'granted',
+    proxyAccess: false,
     createdAt: created,
   };
   const grace: Caregiver = {
@@ -188,6 +191,7 @@ export function buildDemoStore(now = new Date()): Store {
     inviteCode: 'GRACE-2026',
     acceptedInvitation: true,
     consentStatus: 'granted',
+    proxyAccess: false,
     createdAt: created,
   };
   store.caregivers = [sofia, grace];

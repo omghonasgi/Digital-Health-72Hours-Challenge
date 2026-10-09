@@ -1,3 +1,4 @@
+import { makePlanCode, stubPatient } from '@/core/codes';
 import type { Language, Profile, Role, Session } from '@/core/types';
 import { newId } from '../repository';
 import type { Store } from './store';
@@ -36,6 +37,10 @@ export class LocalAuth {
     };
     this.store.profiles.push(profile);
     this.store.accounts.push({ email: input.email.trim(), password: input.password, profileId: profile.id, label: `${profile.displayName} · ${profile.role}` });
+    if (input.role === 'patient') {
+      const id = newId('pat');
+      this.store.patients.push(stubPatient(profile, id, makePlanCode(profile.displayName)));
+    }
     await this.persist();
     return this.sessionFor(profile.id)!;
   }

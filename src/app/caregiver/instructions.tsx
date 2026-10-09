@@ -1,15 +1,19 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { InstructionCard } from '@/features/InstructionCard';
+import { InstructionsEditor } from '@/features/InstructionsEditor';
 import { PlanState } from '@/features/PlanScreen';
 import { WarningSigns } from '@/features/WarningSigns';
 import { useCaregiverView } from '@/state/usePlan';
 import { BOTTOM_BAR_HEIGHT, Card, Muted, Screen, Section } from '@/ui';
 
-/** Only the instructions behind this caregiver's tasks, plus warning signs. The repository enforces that; this just renders. */
+/** Proxy caregivers enter the full instruction list; others see only assigned-task instructions. */
 export default function CaregiverInstructions() {
   const { t } = useTranslation();
   const { view, loading, error, reload } = useCaregiverView();
+  const proxyPatient = view?.records.find((r) => r.proxyAccess);
+  if (proxyPatient) return <InstructionsEditor patientId={proxyPatient.patientId} />;
+
   return (
     <PlanState loading={loading && !view} error={error} onRetry={reload}>
       {view ? (

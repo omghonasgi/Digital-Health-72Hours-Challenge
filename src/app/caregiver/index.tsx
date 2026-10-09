@@ -1,6 +1,6 @@
 import React from 'react';
 import { View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { ms } from '@/core/time';
 import { NotificationsPanel } from '@/features/NotificationsPanel';
@@ -43,7 +43,29 @@ export default function CaregiverHome() {
             const unconfirmed = blocks.some((b) => !b.confirmed);
             return (
               <View key={p.id} style={{ gap: space.lg }}>
-                <PatientHeader name={p.displayName} procedure={p.procedureName} dischargeAt={p.dischargeAt} timezone={p.timezone} relationship={record?.relationship} />
+                <PatientHeader name={p.displayName} procedure={p.procedureName} dischargeAt={p.dischargeAt} timezone={p.timezone} relationship={record?.relationship} proxy={!!record?.proxyAccess} />
+                {record?.proxyAccess && !p.intakeCompletedAt ? (
+                  <Card>
+                    <Body weight="medium">{t('caregiverApp.waitingOnYou')}</Body>
+                    <Muted>{t('caregiverApp.planIntro')}</Muted>
+                    <Button
+                      label={t('caregiverApp.enterTheirPlan', { name: p.displayName.split(' ')[0] })}
+                      variant="hero"
+                      compact
+                      icon={Icons.ChevronRight}
+                      onPress={() => router.push(`/caregiver/intake?patientId=${p.id}` as Href)}
+                    />
+                  </Card>
+                ) : null}
+                {record?.proxyAccess && p.intakeCompletedAt ? (
+                  <Button
+                    label={t('caregiverApp.editAssessment')}
+                    variant="ghost"
+                    compact
+                    icon={Icons.ChevronRight}
+                    onPress={() => router.push(`/caregiver/intake?patientId=${p.id}` as Href)}
+                  />
+                ) : null}
                 <NotificationsPanel timezone={p.timezone} taskHref={(id) => ({ pathname: '/caregiver/task/[id]', params: { id } })} />
                 {unconfirmed ? (
                   <Card>
@@ -81,7 +103,21 @@ export default function CaregiverHome() {
   );
 }
 
-function PatientHeader({ name, procedure, dischargeAt, timezone, relationship }: { name: string; procedure: string; dischargeAt: string; timezone: string; relationship?: string }) {
+function PatientHeader({
+  name,
+  procedure,
+  dischargeAt,
+  timezone,
+  relationship,
+  proxy,
+}: {
+  name: string;
+  procedure: string;
+  dischargeAt: string;
+  timezone: string;
+  relationship?: string;
+  proxy?: boolean;
+}) {
   const { t } = useTranslation();
   const f = useFmt(timezone);
   return (
@@ -90,9 +126,12 @@ function PatientHeader({ name, procedure, dischargeAt, timezone, relationship }:
         {t('caregiverApp.helping', { name })}
       </Body>
       <Meta color={colors.canvasMuted}>
-        {procedure} · {t('home.discharge')} {f.dateTime(dischargeAt)}
+        {procedure || '—'} · {t('home.discharge')} {f.dateTime(dischargeAt)}
         {relationship ? ` · ${relationship}` : ''}
       </Meta>
+      {proxy ? (
+        <Meta color={colors.canvasMuted}>{t('caregiverApp.proxyBadge')}</Meta>
+      ) : null}
     </Surface>
   );
 }

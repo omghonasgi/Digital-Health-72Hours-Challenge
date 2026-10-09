@@ -92,6 +92,12 @@ export class SupabaseRepository implements Repository {
   // SECURITY DEFINER view that returns the same shape with finances blanked.
   getPatient = async (id: string) => (await this.one<Patient>('patients', 'id', id)) ?? this.one<Patient>('patient_logistics', 'id', id);
   getPatientByProfile = (profileId: string) => this.one<Patient>('patients', 'profile_id', profileId);
+  getPatientByAccessCode = async (code: string) => {
+    const { data, error } = await this.db.rpc('lookup_patient_access', { code: code.trim().toUpperCase() });
+    if (error) throw this.wrap(error);
+    const row = Array.isArray(data) ? data[0] : data;
+    return row ? fromRow<Patient>(row as Record<string, unknown>) : null;
+  };
   listPatients = async () => {
     const full = await this.rows<Patient>('patients', { order: { col: 'surgery_date' } });
     if (full.length) return full;

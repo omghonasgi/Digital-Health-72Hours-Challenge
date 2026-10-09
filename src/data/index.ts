@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { makePlanCode, stubPatient } from '@/core/codes';
 import type { Language, Profile, Role, Session } from '@/core/types';
+import { newId } from './repository';
 import { LocalAuth } from './local/LocalAuth';
 import { LocalRepository } from './local/LocalRepository';
 import { buildDemoStore } from './local/seed';
@@ -135,6 +137,31 @@ function createSupabase(): DataLayer {
         preferred_language: input.preferredLanguage,
       });
       if (e2) throw new Error(e2.message);
+      if (input.role === 'patient') {
+        const s0 = await sessionFromAuth();
+        if (s0) {
+          const stub = stubPatient(s0.profile, newId('pat'), makePlanCode(input.displayName));
+          const { error: e3 } = await db.from('patients').insert({
+            id: stub.id,
+            profile_id: stub.profileId,
+            organization_id: stub.organizationId ?? null,
+            display_name: stub.displayName,
+            preferred_language: stub.preferredLanguage,
+            zip: stub.zip || '00000',
+            procedure_name: stub.procedureName || '—',
+            surgery_date: stub.surgeryDate,
+            discharge_at: stub.dischargeAt,
+            timezone: stub.timezone,
+            insurance_type: stub.insuranceType,
+            recovery_budget: stub.recoveryBudget,
+            income_range: stub.incomeRange,
+            financial_concerns: stub.financialConcerns,
+            home_environment: stub.homeEnvironment,
+            access_code: stub.accessCode,
+          });
+          if (e3) throw new Error(e3.message);
+        }
+      }
       const s = await sessionFromAuth();
       if (!s) throw new Error('Confirm your email, then sign in.');
       return s;

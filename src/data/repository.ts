@@ -45,6 +45,8 @@ export interface Repository {
   // patients
   getPatient(id: string): Promise<Patient | null>;
   getPatientByProfile(profileId: string): Promise<Patient | null>;
+  /** Open to a signed-in caregiver: the plan code is the secret. */
+  getPatientByAccessCode(code: string): Promise<Patient | null>;
   listPatients(): Promise<Patient[]>;
   savePatient(p: Patient): Promise<Patient>;
 

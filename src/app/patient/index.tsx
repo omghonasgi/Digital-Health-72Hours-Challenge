@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { nextTasks } from '@/core/engines/calendar';
 import { openGaps } from '@/core/engines/gaps';
 import { hoursBetween } from '@/core/time';
+import { AccessCodeCard } from '@/features/AccessCodeCard';
 import { CoverageBar } from '@/features/CoverageBar';
 import { NotificationsPanel } from '@/features/NotificationsPanel';
 import { PlanState } from '@/features/PlanScreen';
@@ -42,8 +43,31 @@ export default function PatientHome() {
 
   return (
     <PlanState loading={loading && !plan} error={error} onRetry={reload}>
-      {plan ? <Dashboard plan={plan} now={now} wide={wide} /> : null}
+      {plan && !plan.patient.intakeCompletedAt ? <ShareFirstHome code={plan.patient.accessCode} name={plan.patient.displayName} /> : null}
+      {plan && plan.patient.intakeCompletedAt ? <Dashboard plan={plan} now={now} wide={wide} /> : null}
     </PlanState>
+  );
+}
+
+function ShareFirstHome({ code, name }: { code: string; name: string }) {
+  const { t } = useTranslation();
+  const router = useRouter();
+  return (
+    <Screen displayTitle={t('home.greeting', { name: name.split(' ')[0] })} subtitle={t('home.shareFirst')} bottomInset={BOTTOM_BAR_HEIGHT}>
+      <Surface tone="blueDeep" padded={space.xl} style={{ gap: space.lg }}>
+        <Body size="large" color={colors.canvas}>
+          {t('home.shareFirst')}
+        </Body>
+        <Body color={colors.canvasMuted}>{t('home.shareFirstBody')}</Body>
+      </Surface>
+      <AccessCodeCard code={code} />
+      <Card>
+        <Body weight="medium">{t('home.orEnterYourself')}</Body>
+        <Muted>{t('home.intakeBody')}</Muted>
+        <Button label={t('home.startIntake')} variant="hero" icon={Icons.ChevronRight} onPress={() => router.push('/patient/intake')} />
+      </Card>
+      <Meta>{t('landing.noAi')}</Meta>
+    </Screen>
   );
 }
 
@@ -64,6 +88,7 @@ function Dashboard({ plan, now, wide }: { plan: NonNullable<ReturnType<typeof us
 
   return (
     <Screen displayTitle={t('home.greeting', { name: p.displayName.split(' ')[0] })} subtitle={windowLine} aside={<ReadinessStamp status={plan.readiness} />} bottomInset={BOTTOM_BAR_HEIGHT}>
+      <AccessCodeCard code={p.accessCode} compact />
       <Card>
         <KeyValue k={t('home.procedure')} v={p.procedureName} meta={p.facility} />
         <KeyValue k={t('home.surgery')} v={f.dateTime(p.surgeryDate)} />
