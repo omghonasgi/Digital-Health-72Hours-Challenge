@@ -50,7 +50,7 @@ export function TaskDetail({ task, timezone, caregivers, instruction, onChanged 
     });
 
   const can = (e: TaskEventType) => canTransition(task.status, e);
-  const mine = role === 'patient' || (role === 'caregiver' && task.assignedUserId === session?.profile.id);
+  const mine = role === 'patient' || role === 'caregiver';
 
   return (
     <View style={{ gap: space.xl }}>

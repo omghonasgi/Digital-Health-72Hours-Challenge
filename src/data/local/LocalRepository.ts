@@ -396,8 +396,9 @@ export class LocalRepository implements Repository {
   // -- tasks -----------------------------------------------------------------------------------------
 
   private async listTasksForCaregiverInternal(patientId: string) {
-    const mine = new Set(this.myCaregiverRecords().filter((c) => c.patientId === patientId).map((c) => c.id));
-    return this.store.tasks.filter((t) => t.patientId === patientId && t.assignedCaregiverId && mine.has(t.assignedCaregiverId));
+    // An accepted caregiver sees the whole schedule so they can report a task done when the patient can't.
+    if (!this.myCaregiverRecords().some((c) => c.patientId === patientId)) return [];
+    return this.store.tasks.filter((t) => t.patientId === patientId);
   }
   async listTasks(patientId: string) {
     const a = this.requireAny(patientId);

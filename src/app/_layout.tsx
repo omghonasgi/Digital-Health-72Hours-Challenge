@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { View } from 'react-native';
 import { useFonts, Fraunces_400Regular_Italic } from '@expo-google-fonts/fraunces';
 import { IBMPlexMono_400Regular, IBMPlexMono_500Medium, IBMPlexMono_600SemiBold } from '@expo-google-fonts/ibm-plex-mono';
+import { RemindersBridge } from '@/features/RemindersBridge';
 import { SessionProvider, useSession } from '@/state/SessionProvider';
 import { colors } from '@/ui/theme';
 
@@ -18,7 +19,12 @@ function Gate() {
     if (ready) void SplashScreen.hideAsync();
   }, [ready]);
   if (!ready) return <View style={{ flex: 1, backgroundColor: colors.canvas }} />;
-  return <Slot />;
+  return (
+    <>
+      <RemindersBridge />
+      <Slot />
+    </>
+  );
 }
 
 export default function RootLayout() {

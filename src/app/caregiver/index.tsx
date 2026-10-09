@@ -5,10 +5,11 @@ import { useTranslation } from 'react-i18next';
 import { ms } from '@/core/time';
 import { NotificationsPanel } from '@/features/NotificationsPanel';
 import { PlanState } from '@/features/PlanScreen';
+import { RemindersCard } from '@/features/RemindersCard';
 import { TaskCard } from '@/features/TaskCard';
 import { useFmt } from '@/features/format';
 import { useSession } from '@/state/SessionProvider';
-import { useCaregiverView, useNow } from '@/state/usePlan';
+import { useCaregiverView, useNow, useQuickDone } from '@/state/usePlan';
 import { BOTTOM_BAR_HEIGHT, Body, Button, Card, Chip, Icons, Meta, Muted, Row, Screen, Section, StatusDot, Surface, colors, space } from '@/ui';
 
 /** Caregiver home: only tasks assigned to this person, grouped by patient. */
@@ -18,6 +19,7 @@ export default function CaregiverHome() {
   const { session } = useSession();
   const { view, loading, error, reload } = useCaregiverView();
   const now = useNow();
+  const quick = useQuickDone(reload);
 
   return (
     <PlanState loading={loading && !view} error={error} onRetry={reload}>
@@ -41,6 +43,8 @@ export default function CaregiverHome() {
             const past = tasks.filter((x) => !upcoming.includes(x));
             const blocks = view.availability.filter((a) => a.caregiverId === record?.id);
             const unconfirmed = blocks.some((b) => !b.confirmed);
+            const isMine = (x: (typeof tasks)[number]) => x.assignedUserId === session?.profile.id;
+            const first = p.displayName.split(' ')[0];
             return (
               <View key={p.id} style={{ gap: space.lg }}>
                 <PatientHeader name={p.displayName} procedure={p.procedureName} dischargeAt={p.dischargeAt} timezone={p.timezone} relationship={record?.relationship} proxy={!!record?.proxyAccess} />
@@ -76,16 +80,26 @@ export default function CaregiverHome() {
                     <Button label={t('caregiverApp.confirmHours')} variant="hero" compact onPress={() => router.push('/caregiver/availability')} />
                   </Card>
                 ) : null}
-                <Section title={t('home.nextTasks')} aside={<Chip label={String(open.length)} dense />}>
-                  {upcoming.length === 0 ? (
+                <Section title={t('reminders.assignedToYou')} aside={<Chip label={String(open.filter(isMine).length)} dense />}>
+                  {upcoming.filter(isMine).length === 0 ? (
                     <Card>
                       <Muted>{t('caregiverApp.noTasks')}</Muted>
                     </Card>
                   ) : null}
-                  {upcoming.map((task) => (
-                    <TaskCard key={task.id} task={task} timezone={p.timezone} caregivers={view.records} href={{ pathname: '/caregiver/task/[id]', params: { id: task.id } }} />
+                  {upcoming.filter(isMine).map((task) => (
+                    <TaskCard key={task.id} task={task} timezone={p.timezone} caregivers={view.records} onDone={quick.done} doneBusy={quick.busy} href={{ pathname: '/caregiver/task/[id]', params: { id: task.id } }} />
                   ))}
                 </Section>
+                {upcoming.some((x) => !isMine(x)) ? (
+                  <Section title={t('reminders.patientTasks', { name: first })}>
+                    <Muted>{t('reminders.patientTasksIntro', { name: first })}</Muted>
+                    {upcoming
+                      .filter((x) => !isMine(x))
+                      .map((task) => (
+                        <TaskCard key={task.id} task={task} timezone={p.timezone} caregivers={view.records} compact onDone={quick.done} doneBusy={quick.busy} href={{ pathname: '/caregiver/task/[id]', params: { id: task.id } }} />
+                      ))}
+                  </Section>
+                ) : null}
                 {past.length ? (
                   <Section title={t('tasks.history')}>
                     {past.map((task) => (
@@ -96,6 +110,8 @@ export default function CaregiverHome() {
               </View>
             );
           })}
+          {quick.error ? <Body color={colors.urgent}>{quick.error}</Body> : null}
+          {view.patients.length ? <RemindersCard tasks={view.tasks} patients={view.patients} /> : null}
           {view.patients.length ? <Button label={t('caregiverApp.enterCode')} variant="quiet" compact onPress={() => router.push('/invite')} /> : null}
         </Screen>
       ) : null}

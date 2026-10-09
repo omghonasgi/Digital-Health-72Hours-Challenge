@@ -223,16 +223,17 @@ describe('12–13. Authorization', () => {
     expect((await james.repo.listPatients()).map((p) => p.id)).toEqual([DEMO_IDS.james]);
   });
 
-  it('limits a caregiver to tasks assigned to them and the instructions behind those tasks', async () => {
+  it('lets an accepted caregiver see the schedule of the patient they help, and nothing else', async () => {
     const store = demoStore();
     const maria = asMaria(store);
     await refreshPlan(maria.repo, DEMO_IDS.maria, NOW);
+    await refreshPlan(asJames(store).repo, DEMO_IDS.james, NOW);
     const sofia = asSofia(store);
     const tasks = await sofia.repo.listTasks(DEMO_IDS.maria);
-    expect(tasks.length).toBeGreaterThan(0);
-    expect(tasks.every((t) => t.assignedCaregiverId === DEMO_IDS.sofia)).toBe(true);
     const all = await maria.repo.listTasks(DEMO_IDS.maria);
-    expect(all.length).toBeGreaterThan(tasks.length);
+    // The whole schedule, so she can report a task done when Maria can't.
+    expect(tasks.map((t) => t.id).sort()).toEqual(all.map((t) => t.id).sort());
+    await expect(sofia.repo.listTasks(DEMO_IDS.james)).rejects.toBeInstanceOf(AccessDenied);
 
     const instructions = await sofia.repo.listInstructions(DEMO_IDS.maria);
     const allowed = new Set(tasks.map((t) => t.instructionId));
@@ -245,7 +246,8 @@ describe('12–13. Authorization', () => {
     expect(patient?.incomeRange).toBe('prefer_not_to_say');
     await expect(sofia.repo.listGaps(DEMO_IDS.maria)).rejects.toBeInstanceOf(AccessDenied);
     await expect(sofia.repo.listProviders()).rejects.toBeInstanceOf(AccessDenied);
-    await expect(sofia.repo.getTask(all.find((t) => t.assignedCaregiverId !== DEMO_IDS.sofia)!.id)).rejects.toBeInstanceOf(AccessDenied);
+    const jamesTask = store.tasks.find((t) => t.patientId === DEMO_IDS.james)!;
+    await expect(sofia.repo.getTask(jamesTask.id)).rejects.toBeInstanceOf(AccessDenied);
     // Unrelated patient: nothing.
     await expect(sofia.repo.listTasks(DEMO_IDS.james)).rejects.toBeInstanceOf(AccessDenied);
   });

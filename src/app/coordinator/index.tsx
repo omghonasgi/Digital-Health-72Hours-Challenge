@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import type { GapCategory } from '@/core/types';
+import { NotificationsPanel } from '@/features/NotificationsPanel';
 import { PlanState } from '@/features/PlanScreen';
 import { ReadinessStamp } from '@/features/ReadinessStamp';
 import { useFmt } from '@/features/format';
@@ -72,6 +73,15 @@ export default function CoordinatorHome() {
             <Meta color={colors.canvas}>{t('coordinator.summary.blocked', { count: totals.blocked })}</Meta>
           </Row>
         </Surface>
+        <NotificationsPanel
+          timezone={patients?.[0]?.plan.patient.timezone ?? 'UTC'}
+          limit={8}
+          refreshKey={patients}
+          taskHref={(taskId) => {
+            const owner = patients?.find((s) => s.plan.tasks.some((x) => x.id === taskId));
+            return owner ? { pathname: '/coordinator/patient/[id]/task/[taskId]', params: { id: owner.plan.patient.id, taskId } } : '/coordinator';
+          }}
+        />
 
         <Section title={t('coordinator.filters')}>
           <Row wrap>

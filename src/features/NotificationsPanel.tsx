@@ -8,7 +8,7 @@ import { Body, Button, Card, Glyph, Icons, Meta, Muted, Row, colors, space } fro
 import { useFmt } from './format';
 
 /** In-app notifications for the signed-in person: reminders, missed and blocked tasks. */
-export function NotificationsPanel({ timezone, taskHref, limit = 5 }: { timezone: string; taskHref: (taskId: string) => Href; limit?: number }) {
+export function NotificationsPanel({ timezone, taskHref, limit = 5, refreshKey }: { timezone: string; taskHref: (taskId: string) => Href; limit?: number; /** Reloads the list whenever this value changes. */ refreshKey?: unknown }) {
   const { t } = useTranslation();
   const f = useFmt(timezone);
   const router = useRouter();
@@ -29,7 +29,7 @@ export function NotificationsPanel({ timezone, taskHref, limit = 5 }: { timezone
     return () => {
       alive = false;
     };
-  }, [repo, session, limit, tick]);
+  }, [repo, session, limit, tick, refreshKey]);
 
   if (!items.length) return null;
 
@@ -42,7 +42,7 @@ export function NotificationsPanel({ timezone, taskHref, limit = 5 }: { timezone
       {items.map((n) => (
         <View key={n.id} style={styles.item}>
           <View style={{ flex: 1, gap: 2 }}>
-            <Body>{n.messageKey === 'notifications.reminder' ? t('notifications.reminder', { minutes: n.messageParams?.minutes ?? 30 }) : n.messageKey === 'notifications.missed' ? t('notifications.missed') : n.messageKey === 'notifications.blocked' ? t('notifications.blocked') : n.message}</Body>
+            <Body>{n.messageKey === 'notifications.reminder' ? t('notifications.reminder', { minutes: n.messageParams?.minutes ?? 30 }) : n.messageKey === 'notifications.missed' ? t('notifications.missed') : n.messageKey === 'notifications.blocked' ? t('notifications.blocked') : t(n.messageKey, { defaultValue: n.message })}</Body>
             <Muted>{n.message}</Muted>
             <Meta>{f.dateTime(n.createdAt)}</Meta>
           </View>

@@ -6,7 +6,7 @@ import { computeFinancials, matchAssistancePrograms, type ProgramMatch } from '.
 import { detectGaps, type CoverageSummary } from './engines/gaps';
 import { matchProviders } from './engines/matching';
 import { buildBill, claimIdFor, settleBill } from './engines/payments';
-import { escalationNotification, dueReminders } from './engines/notifications';
+import { completionNotification, escalationNotification, dueReminders } from './engines/notifications';
 import { applyTransition, markMissed } from './engines/tasks';
 import { capabilityToService } from './engines/catalog';
 import { isPlanCode, makeInviteCode, makePlanCode, normalizeCode } from './codes';
@@ -575,6 +575,13 @@ export async function transitionTask(
     recipients.delete(session.profile.id);
     await repo.addNotifications([...recipients].map((r) => escalationNotification(result.task, r, now, event === 'missed' ? 'missed' : 'blocked')));
   }
+  if (event === 'reported_complete' && session.profile.role !== 'coordinator') {
+    const recipients = new Set<string>((await repo.listCoordinators()).map((c) => c.id));
+    const patient = await repo.getPatient(task.patientId);
+    if (patient) recipients.add(patient.profileId);
+    recipients.delete(session.profile.id);
+    await repo.addNotifications([...recipients].map((r) => completionNotification(result.task, r, now, session.profile.role === 'caregiver' ? 'caregiver' : 'patient')));
+  }
   if (event === 'resolved' || event === 'resource_confirmed' || event === 'reassigned') await refreshAsSystem(repo, task.patientId);
   return result;
 }
@@ -634,7 +641,7 @@ export async function getCaregiverView(repo: Repository, session: Session): Prom
   for (const c of active) {
     const p = await repo.getPatient(c.patientId);
     if (p) patients.push(p);
-    tasks.push(...(await repo.listTasksForCaregiver(c.id)));
+    tasks.push(...(await repo.listTasks(c.patientId)));
     instructions.push(...(await repo.listInstructions(c.patientId)));
   }
   const availability = await repo.listAvailability(records.map((c) => c.id));
@@ -731,4 +738,32 @@ export async function addCaregiver(repo: Repository, patientId: string, input: O
   await repo.saveCaregiver(cg);
   await setAvailability(repo, cg, blocks, false);
   return cg;
+}
+
+// ---------------------------------------------------------------------------
+// Demo: move the recovery window so it is happening now
+// ---------------------------------------------------------------------------
+
+/**
+ * Demo helper. Slides the patient's surgery, discharge and family-caregiver
+ * hours by one offset so the first open task lands `leadMs` from now. Every
+ * interval the clinician wrote is untouched; only the anchor moves. Returns
+ * the next task that will fire.
+ */
+export async function startLiveDemo(repo: Repository, patientId: string, leadMs = 60_000, now = Date.now()) {
+  const patient = await repo.getPatient(patientId);
+  if (!patient) throw new Error('Patient not found');
+  const open = (list: RecoveryTask[]) => list.filter((t) => t.assignedRole === 'patient' && (t.status === 'scheduled' || t.status === 'in_progress')).sort((a, b) => ms(a.scheduledAt) - ms(b.scheduledAt));
+  const first = open(await repo.listTasks(patientId)).find((t) => ms(t.scheduledAt) > ms(patient.dischargeAt));
+  if (!first) throw new Error('No open tasks to schedule. Approve an instruction first.');
+  const delta = now + leadMs - ms(first.scheduledAt);
+  const shift = (iso: string) => new Date(ms(iso) + delta).toISOString();
+
+  await repo.savePatient({ ...patient, surgeryDate: shift(patient.surgeryDate), dischargeAt: shift(patient.dischargeAt) });
+  for (const c of await repo.listCaregivers(patientId)) {
+    const blocks = await repo.listAvailability([c.id]);
+    await repo.replaceAvailability(c.id, blocks.map((b) => ({ ...b, startAt: shift(b.startAt), endAt: shift(b.endAt) })));
+  }
+  await refreshPlan(repo, patientId, new Date(now).toISOString());
+  return open(await repo.listTasks(patientId)).find((t) => ms(t.scheduledAt) > now) ?? null;
 }

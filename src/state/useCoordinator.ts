@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { getPlan, runHousekeeping, type PlanView } from '@/core/usecases';
+import { planChanged } from '@/notifications/events';
 import { useSession } from './SessionProvider';
 
 export interface PatientSummary {
@@ -55,6 +56,8 @@ export function useCoordinatorPatients() {
       void reload();
     }, [reload]),
   );
+
+  useEffect(() => planChanged.subscribe(() => void reload()), [reload]);
 
   return { patients: state.data, loading: state.loading, error: state.error, reload };
 }

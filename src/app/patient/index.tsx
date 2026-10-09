@@ -6,15 +6,17 @@ import { nextTasks } from '@/core/engines/calendar';
 import { openGaps } from '@/core/engines/gaps';
 import { hoursBetween } from '@/core/time';
 import { AccessCodeCard } from '@/features/AccessCodeCard';
+import { startLiveDemo } from '@/core/usecases';
 import { CoverageBar } from '@/features/CoverageBar';
 import { NotificationsPanel } from '@/features/NotificationsPanel';
 import { PlanState } from '@/features/PlanScreen';
+import { RemindersCard } from '@/features/RemindersCard';
 import { ReadinessStamp } from '@/features/ReadinessStamp';
 import { TaskCard } from '@/features/TaskCard';
 import { hoursLabel, useFmt } from '@/features/format';
 import { readinessTone } from '@/features/status';
 import { useSession } from '@/state/SessionProvider';
-import { useNow, usePlan } from '@/state/usePlan';
+import { useNow, usePlan, useQuickDone } from '@/state/usePlan';
 import { BOTTOM_BAR_HEIGHT, Body, Button, Card, Chip, Glyph, Hairline, Icons, KeyValue, Meta, Muted, Num, Row, Screen, Section, StatusDot, Surface, colors, layout, space } from '@/ui';
 
 export default function PatientHome() {
@@ -44,7 +46,7 @@ export default function PatientHome() {
   return (
     <PlanState loading={loading && !plan} error={error} onRetry={reload}>
       {plan && !plan.patient.intakeCompletedAt ? <ShareFirstHome code={plan.patient.accessCode} name={plan.patient.displayName} /> : null}
-      {plan && plan.patient.intakeCompletedAt ? <Dashboard plan={plan} now={now} wide={wide} /> : null}
+      {plan && plan.patient.intakeCompletedAt ? <Dashboard plan={plan} now={now} wide={wide} reload={reload} /> : null}
     </PlanState>
   );
 }
@@ -71,7 +73,9 @@ function ShareFirstHome({ code, name }: { code: string; name: string }) {
   );
 }
 
-function Dashboard({ plan, now, wide }: { plan: NonNullable<ReturnType<typeof usePlan>['plan']>; now: string; wide: boolean }) {
+function Dashboard({ plan, now, wide, reload }: { plan: NonNullable<ReturnType<typeof usePlan>['plan']>; now: string; wide: boolean; reload: () => Promise<void> }) {
+  const quick = useQuickDone(reload);
+  const { repo, mode } = useSession();
   const { t } = useTranslation();
   const router = useRouter();
   const f = useFmt(plan.patient.timezone);
@@ -183,9 +187,23 @@ function Dashboard({ plan, now, wide }: { plan: NonNullable<ReturnType<typeof us
             {plan.instructions.length === 0 ? <Button label={t('instructions.title')} variant="hero" compact onPress={() => router.push('/patient/instructions')} /> : null}
           </Card>
         ) : (
-          upcoming.map((task) => <TaskCard key={task.id} task={task} timezone={p.timezone} caregivers={plan.caregivers} href={{ pathname: '/patient/task/[id]', params: { id: task.id } }} />)
+          upcoming.map((task) => <TaskCard key={task.id} task={task} timezone={p.timezone} caregivers={plan.caregivers} onDone={quick.done} doneBusy={quick.busy} href={{ pathname: '/patient/task/[id]', params: { id: task.id } }} />)
         )}
       </Section>
+
+      {quick.error ? <Body color={colors.urgent}>{quick.error}</Body> : null}
+      <RemindersCard
+        tasks={plan.tasks}
+        patients={[p]}
+        onStartLive={
+          mode === 'local'
+            ? async () => {
+                await startLiveDemo(repo, p.id);
+                await reload();
+              }
+            : undefined
+        }
+      />
 
       <Section title={t('home.alerts')}>
         <NotificationsPanel timezone={p.timezone} taskHref={(id) => ({ pathname: '/patient/task/[id]', params: { id } })} />

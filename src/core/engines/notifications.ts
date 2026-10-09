@@ -49,3 +49,17 @@ export function escalationNotification(task: RecoveryTask, recipientId: string, 
     createdAt: now,
   };
 }
+
+/** Self-reported completion, relayed to the care team. A report, not a verification. */
+export function completionNotification(task: RecoveryTask, recipientId: string, now: string, by: 'patient' | 'caregiver'): Notification {
+  return {
+    id: `ntf_${task.id}_${recipientId}_done_${Date.parse(now).toString(36)}`,
+    recipientId,
+    taskId: task.id,
+    messageKey: by === 'caregiver' ? 'notifications.doneByCaregiver' : 'notifications.doneByPatient',
+    messageParams: { title: task.titleKey },
+    message: `${by === 'caregiver' ? 'Caregiver' : 'Patient'} reported done: ${task.title}`,
+    status: 'unread',
+    createdAt: now,
+  };
+}

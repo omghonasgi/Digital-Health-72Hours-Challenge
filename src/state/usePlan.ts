@@ -1,7 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
-import { getCaregiverView, getPlan, runHousekeeping, type CaregiverView, type PlanView } from '@/core/usecases';
+import type { RecoveryTask } from '@/core/types';
+import { getCaregiverView, getPlan, runHousekeeping, transitionTask, type CaregiverView, type PlanView } from '@/core/usecases';
+import { planChanged } from '@/notifications/events';
+import { useReminderSync } from '@/notifications/useReminders';
 import { useSession } from './SessionProvider';
+
+const NO_PATIENTS: CaregiverView['patients'] = [];
 
 interface AsyncState<T> {
   data: T | null;
@@ -38,6 +43,11 @@ export function usePlan(patientId: string | undefined) {
     }, [reload]),
   );
 
+  useEffect(() => planChanged.subscribe(() => void reload()), [reload]);
+  const patients = useMemo(() => (state.data ? [state.data.patient] : []), [state.data]);
+  // Coordinators load plans too; only the patient's own phone gets the patient's reminders.
+  useReminderSync(session?.profile.role === 'patient' ? state.data?.tasks : undefined, patients, session);
+
   return { plan: state.data, loading: state.loading, error: state.error, reload };
 }
 
@@ -58,6 +68,8 @@ export function useCaregiverView() {
       void reload();
     }, [reload]),
   );
+  useEffect(() => planChanged.subscribe(() => void reload()), [reload]);
+  useReminderSync(state.data?.tasks, state.data?.patients ?? NO_PATIENTS, session);
   return { view: state.data, loading: state.loading, error: state.error, reload };
 }
 
@@ -78,6 +90,22 @@ export function useAction() {
     }
   }, []);
   return { busy, error, run, clearError: () => setError(null) };
+}
+
+/** One-tap "Done": the same self-report the task screen makes, then a reload. */
+export function useQuickDone(reload: () => Promise<void> | void) {
+  const { repo, session } = useSession();
+  const { busy, error, run } = useAction();
+  const done = useCallback(
+    (task: RecoveryTask) =>
+      void run(async () => {
+        if (!session) return;
+        await transitionTask(repo, session, task, 'reported_complete');
+        await reload();
+      }),
+    [repo, session, run, reload],
+  );
+  return { done, busy, error };
 }
 
 export function useNow(intervalMs = 60_000) {
