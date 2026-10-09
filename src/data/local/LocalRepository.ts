@@ -5,9 +5,11 @@ import type {
   ClinicalInstruction,
   ClinicalReview,
   DischargeDocument,
+  FamilyBill,
   Notification,
   Patient,
   PatientEquipment,
+  Payment,
   Profile,
   RecoveryGap,
   RecoveryRequirement,
@@ -331,6 +333,31 @@ export class LocalRepository implements Repository {
     this.upsert(this.store.assistanceRequests, a);
     await this.commit();
     return a;
+  }
+
+  // -- payments --------------------------------------------------------------------------------------
+
+  async getBill(patientId: string) {
+    this.requireAny(patientId); // caregivers see the bill (no income, budget or eligibility) so they can split it
+    return this.store.bills.find((b) => b.patientId === patientId) ?? null;
+  }
+  async saveBill(b: FamilyBill) {
+    this.requireFull(b.patientId);
+    this.upsert(this.store.bills, b);
+    await this.commit();
+    return b;
+  }
+  async listPayments(patientId: string) {
+    this.requireAny(patientId);
+    return this.store.payments.filter((p) => p.patientId === patientId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+  async addPayment(p: Payment) {
+    this.requireAny(p.patientId);
+    if (!this.systemMode && p.payerProfileId !== this.me.id) throw new AccessDenied('You can only pay as yourself.');
+    if (this.store.payments.some((x) => x.id === p.id)) throw new AccessDenied('Payments cannot be changed.');
+    this.store.payments.push(p);
+    await this.commit();
+    return p;
   }
 
   // -- tasks -----------------------------------------------------------------------------------------

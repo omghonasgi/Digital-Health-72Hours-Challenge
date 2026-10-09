@@ -481,6 +481,75 @@ export interface FinancialSummary {
 }
 
 // ---------------------------------------------------------------------------
+// Payments: CareBridge as the middle party (simulated)
+//
+// Programs and the family pay CareBridge; CareBridge pays each service. The
+// bill is a snapshot the patient side publishes so caregivers can see and
+// split the family share without reading income, budget or eligibility.
+// ---------------------------------------------------------------------------
+
+export interface FundingLeg {
+  programId: string;
+  programName: string;
+  amount: number;
+}
+
+export interface PendingFunding {
+  programId: string;
+  programName: string;
+  /** The most this program could take off the family share, if approved. */
+  upTo: number;
+  status: AssistanceStatus;
+}
+
+export interface BillItem {
+  /** Same id as the cost line it was built from. */
+  id: string;
+  kind: ResourceKind;
+  /** i18n key under `resources.*` */
+  labelKey: string;
+  label: string;
+  /** Distinguishes items that share a label, e.g. the medication name on a copay. */
+  detail?: string;
+  total: number;
+  hypothetical: boolean;
+  /** False while the service still needs booking (e.g. caregiving with no confirmed provider). */
+  payable: boolean;
+  payeeName: string;
+  payeeProviderId?: string;
+  /** Approved program money CareBridge collects for this item. */
+  programLegs: FundingLeg[];
+  /** Programs that might still cover part of it. Never subtracted. */
+  pending: PendingFunding[];
+  familyShare: number;
+}
+
+export interface FamilyBill {
+  id: string;
+  patientId: string;
+  items: BillItem[];
+  updatedAt: ISODate;
+  isSimulated: true;
+}
+
+export type PaymentMethod = 'card' | 'hsa_fsa';
+
+/** A family member's payment to CareBridge. Immutable once written. No full card number is ever stored. */
+export interface Payment {
+  id: string;
+  patientId: string;
+  payerProfileId: string;
+  payerName: string;
+  amount: number;
+  method: PaymentMethod;
+  cardBrand: string;
+  last4: string;
+  status: 'succeeded';
+  createdAt: ISODate;
+  isSimulated: true;
+}
+
+// ---------------------------------------------------------------------------
 // Tasks
 // ---------------------------------------------------------------------------
 

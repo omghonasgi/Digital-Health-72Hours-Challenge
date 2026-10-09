@@ -13,6 +13,7 @@ export default function PatientLayout() {
     { href: '/patient/resources', label: t('nav.resources'), icon: Icons.LayoutGrid },
     { href: '/patient/caregivers', label: t('nav.caregivers'), icon: Icons.HeartHandshake },
     { href: '/patient/finance', label: t('nav.finance'), icon: Icons.Wallet },
+    { href: '/patient/pay', label: t('nav.pay'), icon: Icons.CreditCard },
     { href: '/patient/settings', label: t('nav.settings'), icon: Icons.Settings },
   ];
   return (

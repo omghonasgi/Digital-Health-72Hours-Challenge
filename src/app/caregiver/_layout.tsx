@@ -10,6 +10,7 @@ export default function CaregiverLayout() {
     { href: '/caregiver', label: t('nav.tasks'), icon: Icons.ClipboardList },
     { href: '/caregiver/availability', label: t('nav.availability'), icon: Icons.Calendar },
     { href: '/caregiver/instructions', label: t('nav.instructions'), icon: Icons.FileText },
+    { href: '/caregiver/pay', label: t('nav.pay'), icon: Icons.CreditCard },
     { href: '/caregiver/settings', label: t('nav.settings'), icon: Icons.Settings },
   ];
   return (

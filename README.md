@@ -50,7 +50,7 @@ Settings → **Reset demo data** restores the seed (and signs you out).
 
 ```bash
 npm run web          # expo start --web
-npm test             # vitest (17 acceptance tests)
+npm test             # vitest (acceptance + payment tests)
 npx tsc --noEmit     # typecheck
 npx expo lint
 ```

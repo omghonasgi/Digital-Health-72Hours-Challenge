@@ -1,10 +1,11 @@
 import type { Repository } from '@/data/repository';
-import { newId } from '@/data/repository';
+import { AccessDenied, newId } from '@/data/repository';
 import { generateCalendar } from './engines/calendar';
 import { detectConflicts } from './engines/conflicts';
 import { computeFinancials, matchAssistancePrograms, type ProgramMatch } from './engines/finance';
 import { detectGaps, type CoverageSummary } from './engines/gaps';
 import { matchProviders } from './engines/matching';
+import { buildBill, settleBill } from './engines/payments';
 import { escalationNotification, dueReminders } from './engines/notifications';
 import { applyTransition, markMissed } from './engines/tasks';
 import { capabilityToService } from './engines/catalog';
@@ -18,11 +19,14 @@ import type {
   CaregiverAvailability,
   ClinicalInstruction,
   DischargeDocument,
+  FamilyBill,
   FinancialSummary,
   GapStatus,
   Interval,
   Patient,
   PatientEquipment,
+  Payment,
+  PaymentMethod,
   ProviderMatch,
   ProviderService,
   ReadinessStatus,
@@ -108,6 +112,7 @@ export async function refreshPlan(repo: Repository, patientId: string, now = now
         toStatus: t.status,
         createdAt: now,
       });
+  await publishBill(repo, patientId, now);
   return { readiness, calendar: cal };
 }
 
@@ -150,6 +155,64 @@ export async function getPlan(repo: Repository, patientId: string, now = nowIso(
     conflicts: detectConflicts({ tasks, gaps, serviceRequests: inp.serviceRequests, dischargeAt: inp.patient.dischargeAt }),
     reviewItems: cal.reviewItems,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Payments (simulated; CareBridge collects from programs and family, pays services)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rebuilds the family bill from the current plan and saves it so caregivers
+ * can read it. Needs full access to the patient; when the caller only has
+ * narrow access (a caregiver), the existing bill is left as is.
+ */
+export async function publishBill(repo: Repository, patientId: string, now = nowIso()): Promise<FamilyBill | null> {
+  try {
+    const plan = await getPlan(repo, patientId, now);
+    const [programs, providers] = await Promise.all([repo.listPrograms(), repo.listProviders()]);
+    const bill = buildBill({
+      patientId,
+      finance: plan.finance,
+      matches: plan.programs,
+      programs,
+      assistanceRequests: plan.assistanceRequests,
+      serviceRequests: plan.serviceRequests,
+      providers,
+      now,
+    });
+    return await repo.saveBill(bill);
+  } catch (e) {
+    if (e instanceof AccessDenied) return null;
+    throw e;
+  }
+}
+
+export async function payFamilyShare(
+  repo: Repository,
+  session: Session,
+  patientId: string,
+  input: { amount: number; method: PaymentMethod; cardBrand: string; last4: string },
+): Promise<Payment> {
+  const [bill, payments] = await Promise.all([repo.getBill(patientId), repo.listPayments(patientId)]);
+  const { balance } = settleBill(bill, payments);
+  const amount = Math.round(input.amount * 100) / 100;
+  if (!(amount > 0)) throw new Error('Enter an amount greater than $0.');
+  if (amount > balance + 0.004) throw new Error('That is more than the family balance.');
+  if (!/^\d{4}$/.test(input.last4)) throw new Error('Card number is incomplete.');
+  const payment: Payment = {
+    id: newId('pay'),
+    patientId,
+    payerProfileId: session.profile.id,
+    payerName: session.profile.displayName,
+    amount,
+    method: input.method,
+    cardBrand: input.cardBrand,
+    last4: input.last4,
+    status: 'succeeded',
+    createdAt: nowIso(),
+    isSimulated: true,
+  };
+  return repo.addPayment(payment);
 }
 
 // ---------------------------------------------------------------------------
